@@ -1,5 +1,9 @@
 # VIPayment PHP SDK
 
+[![Latest Stable Version](https://poser.pugx.org/vipayment/vipayment-php/v/stable)](https://packagist.org/packages/vipayment/vipayment-php)
+[![Total Downloads](https://poser.pugx.org/vipayment/vipayment-php/downloads)](https://packagist.org/packages/vipayment/vipayment-php)
+[![License](https://poser.pugx.org/vipayment/vipayment-php/license)](https://packagist.org/packages/vipayment/vipayment-php)
+
 Official PHP SDK for VIPayment API integration.
 
 ## Installation
@@ -7,7 +11,7 @@ Official PHP SDK for VIPayment API integration.
 Install via Composer:
 
 ```bash
-composer require vipayment/client
+composer require vipayment/vipayment-php
 ```
 
 ## Usage
