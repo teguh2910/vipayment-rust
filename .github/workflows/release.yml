@@ -36,11 +36,6 @@ jobs:
             bin_suffix: ""
             archive_ext: tar.gz
 
-          - os: macos-13
-            target: x86_64-apple-darwin
-            bin_suffix: ""
-            archive_ext: tar.gz
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
