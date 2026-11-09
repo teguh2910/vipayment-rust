@@ -17,6 +17,53 @@ Provides both **asynchronous** (Tokio + Reqwest) and **synchronous (blocking)** 
 - 🔐 **Automated Signatures**: MD5 signature (`md5(api_id + api_key)`) generated and attached automatically.
 - 🛡️ **Blocking Support**: Optional `blocking` feature flag for non-async applications and simple scripts.
 - 📦 **Zero External Server Needed for Testing**: Mock integration tests using `wiremock`.
+- 💻 **Cross-Platform CLI**: Built-in `vipayment` CLI with automated multi-OS release builds (Linux, Windows, macOS).
+
+---
+
+## Pre-built Binaries
+
+Pre-compiled standalone executables are automatically generated on every push for:
+- **Windows (x64)**: `vipayment-x86_64-pc-windows-msvc.zip`
+- **Linux (glibc / Ubuntu/Debian)**: `vipayment-x86_64-unknown-linux-gnu.tar.gz`
+- **Linux (musl / Alpine/Docker)**: `vipayment-x86_64-unknown-linux-musl.tar.gz`
+- **macOS Apple Silicon (M1/M2/M3/M4)**: `vipayment-aarch64-apple-darwin.tar.gz`
+- **macOS Intel (x86_64)**: `vipayment-x86_64-apple-darwin.tar.gz`
+
+Download the latest release package from [GitHub Releases](https://github.com/teguh2910/vipayment-rust/releases).
+
+---
+
+## Command-Line Interface (CLI)
+
+The package includes a standalone CLI binary:
+
+```bash
+# Set credentials
+export VIPAYMENT_API_ID="your_api_id"
+export VIPAYMENT_API_KEY="your_api_key"
+
+# Show help
+vipayment help
+
+# Check balance & profile
+vipayment profile
+
+# Query prepaid services catalog
+vipayment prepaid-services type pulsa-reguler
+
+# Order prepaid service
+vipayment prepaid-order PLN5 1234567890
+
+# Check order status
+vipayment prepaid-status TRX123456789
+
+# Query game catalog
+vipayment game-services "Mobile Legends" available
+
+# Order game top-up
+vipayment game-order ML5 12345678 1234
+```
 
 ---
 

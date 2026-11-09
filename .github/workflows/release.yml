@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_suffix: ""
+            archive_ext: tar.gz
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            bin_suffix: ""
+            archive_ext: tar.gz
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_suffix: .exe
+            archive_ext: zip
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin_suffix: ""
+            archive_ext: tar.gz
+
+          - os: macos-13
+            target: x86_64-apple-darwin
+            bin_suffix: ""
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install musl-tools (for musl target)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }} --bin vipayment --examples
+
+      - name: Prepare package directory
+        shell: bash
+        run: |
+          STAGE_DIR="vipayment-${{ matrix.target }}"
+          mkdir -p "$STAGE_DIR"
+
+          TARGET_DIR="target/${{ matrix.target }}/release"
+          SUFFIX="${{ matrix.bin_suffix }}"
+
+          # Copy main binary
+          cp "$TARGET_DIR/vipayment$SUFFIX" "$STAGE_DIR/"
+
+          # Copy example binaries if present
+          if [ -d "$TARGET_DIR/examples" ]; then
+            cp "$TARGET_DIR/examples/01_profile$SUFFIX" "$STAGE_DIR/" 2>/dev/null || true
+            cp "$TARGET_DIR/examples/02_prepaid$SUFFIX" "$STAGE_DIR/" 2>/dev/null || true
+            cp "$TARGET_DIR/examples/03_game$SUFFIX" "$STAGE_DIR/" 2>/dev/null || true
+          fi
+
+          # Copy documentation & license
+          cp README.md LICENSE "$STAGE_DIR/"
+
+          # Create archive
+          ARCHIVE_NAME="vipayment-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+            7z a "$ARCHIVE_NAME" "$STAGE_DIR"
+          else
+            tar -czvf "$ARCHIVE_NAME" "$STAGE_DIR"
+          fi
+
+          # Generate SHA256 checksum
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+          else
+            shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+          fi
+
+          mkdir -p artifacts
+          mv "$ARCHIVE_NAME" artifacts/
+          mv "$ARCHIVE_NAME.sha256" artifacts/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          merge-multiple: true
+
+      - name: Display downloaded assets
+        run: |
+          ls -la all-artifacts/
+
+      - name: Determine Tag and Release Name
+        id: release_info
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "release_name=Release ${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=latest" >> $GITHUB_OUTPUT
+            echo "release_name=VIPayment Latest Build" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag_name }}
+          name: ${{ steps.release_info.outputs.release_name }}
+          prerelease: ${{ steps.release_info.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: all-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
