@@ -27,6 +27,7 @@ pub struct GameSeed {
 pub struct SyncReport {
     pub groups: usize,
     pub products: usize,
+    pub logos: usize,
     pub errors: Vec<String>,
 }
 
@@ -82,11 +83,18 @@ impl LogoCache {
             }
         };
 
-        let client = reqwest::Client::builder()
+        let client = match reqwest::Client::builder()
             .user_agent("vipayment-api/0.1")
+            .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
             .timeout(Duration::from_secs(8))
             .build()
-            .ok();
+        {
+            Ok(client) => Some(client),
+            Err(error) => {
+                tracing::warn!(%error, "failed to build logo HTTP client");
+                None
+            }
+        };
 
         Self {
             domains,
@@ -118,9 +126,16 @@ async fn cached_logo(client: &reqwest::Client, dir: &str, domain: &str) -> Optio
     }
 
     let url = format!("https://www.google.com/s2/favicons?domain={domain}&sz=128");
-    let response = client.get(url).send().await.ok()?;
+    let response = match client.get(url).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(domain, %error, "logo download failed (check server egress)");
+            return None;
+        }
+    };
 
     if !response.status().is_success() {
+        tracing::warn!(domain, status = %response.status(), "logo download rejected");
         return None;
     }
 
@@ -138,19 +153,40 @@ async fn cached_logo(client: &reqwest::Client, dir: &str, domain: &str) -> Optio
     } else if content_type.contains("webp") {
         "webp"
     } else {
+        tracing::warn!(
+            domain,
+            content_type,
+            "logo download has unexpected content type"
+        );
         return None;
     };
 
-    let bytes = response.bytes().await.ok()?;
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(domain, %error, "logo download body failed");
+            return None;
+        }
+    };
     if bytes.len() < 100 || bytes.len() > 512 * 1024 {
+        tracing::warn!(
+            domain,
+            size = bytes.len(),
+            "logo download has unexpected size"
+        );
         return None;
     }
 
-    tokio::fs::create_dir_all(dir).await.ok()?;
+    if let Err(error) = tokio::fs::create_dir_all(dir).await {
+        tracing::warn!(dir, %error, "cannot create logo directory (check LOGO_DIR permissions)");
+        return None;
+    }
+
     let filename = format!("{stem}.{extension}");
-    tokio::fs::write(Path::new(dir).join(&filename), &bytes)
-        .await
-        .ok()?;
+    if let Err(error) = tokio::fs::write(Path::new(dir).join(&filename), &bytes).await {
+        tracing::warn!(dir, %error, "cannot write logo file (check LOGO_DIR permissions)");
+        return None;
+    }
 
     tracing::debug!(domain, "logo cached");
     Some(filename)
@@ -175,6 +211,7 @@ pub async fn sync(
     let mut report = SyncReport {
         groups: 0,
         products: 0,
+        logos: 0,
         errors: Vec::new(),
     };
 
@@ -250,6 +287,9 @@ async fn sync_game_feature(
             Some(icon) => Some(icon),
             None => logos.resolve(provider_name).await,
         };
+        if icon_url.is_some() {
+            report.logos += 1;
+        }
 
         let group = GroupUpsert {
             slug,
@@ -325,8 +365,12 @@ async fn sync_prepaid(
 
     for ((category, brand), items) in &groups {
         let slug = format!("pp-{}-{}", slugify(category), slugify(brand));
+        let icon_url = logos.resolve(brand).await;
+        if icon_url.is_some() {
+            report.logos += 1;
+        }
         let group = GroupUpsert {
-            icon_url: logos.resolve(brand).await,
+            icon_url,
             slug,
             name: prepaid_group_name(category, brand),
             provider_name: format!("{category}|{brand}"),

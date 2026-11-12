@@ -148,6 +148,7 @@ export type AdminProfile = {
 export type SyncReport = {
   groups: number;
   products: number;
+  logos: number;
   errors: string[];
 };
 

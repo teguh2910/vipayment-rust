@@ -363,6 +363,34 @@ storefront URL (CORS allowlist), set a strong `ADMIN_TOKEN`, switch to
 `PAYMENT_PROVIDER=manual` with real QRIS/bank accounts, and make sure the
 provider allowlist includes the server's public IP.
 
+### Logos missing after deploying
+
+Group logos are downloaded by the **API** during a catalog sync and cached in
+`LOGO_DIR`. Check these in order:
+
+1. **Is the new API deployed?** `GET /api/v1/health` must include
+   `"logos_cached"`. If the field is missing, the running image predates the logo
+   feature: `git pull && docker compose up -d --build`.
+2. **Did the sync cache anything?** `logos_cached` should be greater than zero
+   (up to ~56 unique domains). If it is `0`, inspect
+   `docker compose logs api | grep -i logo`:
+   - `logo download failed (check server egress)` — the server cannot reach
+     `https://www.google.com/s2/favicons`; allow outbound HTTPS.
+   - `cannot create logo directory` / `cannot write logo file` — `LOGO_DIR` is
+     not writable. With a bind mount: `chown -R 10001:10001 ./data` (the API runs
+     as UID 10001).
+3. **Does `/games` return `icon_url`?** If it is `null` for every group, the sync
+   has not cached logos (see step 2). If it returns `/logos/...`, open
+   `https://<api-host>/logos/<file>` directly: a 404 means the reverse proxy does
+   not forward `/logos/` (and `/uploads/`) to the API.
+4. **Was the storefront built with the public API URL?**
+   `NEXT_PUBLIC_API_URL` is inlined into the browser bundle. If it is still
+   `http://localhost:8080`, a remote browser requests logos from its own machine.
+   Rebuild: `NEXT_PUBLIC_API_URL=https://api.example.com docker compose build web`.
+
+The admin **Katalog & saldo** tab also reports the number of logos stored by the
+last manual sync.
+
 ### Configuration (`apps/api/.env`)
 
 | Variable | Default | Notes |

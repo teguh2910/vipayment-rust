@@ -15,6 +15,7 @@ pub fn spawn(pool: SqlitePool, provider: Arc<Provider>, cfg: Arc<Config>) {
                 Ok(report) => tracing::info!(
                     groups = report.groups,
                     products = report.products,
+                    logos = report.logos,
                     errors = report.errors.len(),
                     "catalog sync finished"
                 ),

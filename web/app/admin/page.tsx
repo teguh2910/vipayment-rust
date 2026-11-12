@@ -526,8 +526,8 @@ export default function AdminPage() {
             {syncReport && (
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-300">
                 <p>
-                  {syncReport.groups} grup, {syncReport.products} produk
-                  tersimpan.
+                  {syncReport.groups} grup, {syncReport.products} produk,{" "}
+                  {syncReport.logos} logo tersimpan.
                 </p>
                 {syncReport.errors.length > 0 && (
                   <ul className="mt-2 list-disc space-y-1 pl-4 text-amber-300">

@@ -46,7 +46,27 @@ pub async fn health(State(state): State<AppState>) -> Result<Json<Value>, AppErr
         "payment_provider": state.payments.name(),
         "last_sync_at": db::get_state(&state.pool, "last_sync_at").await,
         "last_sync_error": db::get_state(&state.pool, "last_sync_error").await,
+        "logos_cached": count_logos(&state.cfg.logo_dir).await,
     })))
+}
+
+async fn count_logos(dir: &str) -> u64 {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return 0;
+    };
+
+    let mut count = 0;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if entry
+            .file_type()
+            .await
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
+            count += 1;
+        }
+    }
+    count
 }
 
 pub async fn games(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
