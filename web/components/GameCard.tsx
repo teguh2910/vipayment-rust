@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Game } from "@/lib/api";
+import { fileUrl, type Game } from "@/lib/api";
 
 const GRADIENTS = [
   "from-violet-600 via-indigo-500 to-blue-600",
@@ -28,6 +28,7 @@ export default function GameCard({
   index: number;
 }) {
   const soldOut = game.product_count === 0;
+  const logo = fileUrl(game.icon_url);
   const tag =
     game.category_label ??
     (game.kind === "app" ? "Aplikasi & Voucher" : null);
@@ -44,12 +45,13 @@ export default function GameCard({
           GRADIENTS[index % GRADIENTS.length]
         }`}
       >
-        {game.icon_url ? (
+        {logo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={game.icon_url}
+            src={logo}
             alt={game.name}
-            className="h-16 w-16 object-contain drop-shadow"
+            loading="lazy"
+            className="h-16 w-16 rounded-xl object-contain drop-shadow"
           />
         ) : (
           <span className="text-3xl font-black tracking-wider text-white/90 drop-shadow">

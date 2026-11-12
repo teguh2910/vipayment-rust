@@ -31,7 +31,9 @@ USER 10001:10001
 ENV BIND_ADDR=0.0.0.0:8080 \
     DATABASE_URL=sqlite://data/app.db \
     UPLOAD_DIR=data/uploads \
+    LOGO_DIR=data/logos \
     GAMES_CONFIG_PATH=config/games.json \
+    LOGOS_CONFIG_PATH=config/logos.json \
     RUST_LOG=vipayment_api=info,tower_http=info
 
 EXPOSE 8080

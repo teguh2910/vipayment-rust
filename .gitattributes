@@ -1,0 +1,20 @@
+# Keep text files LF in the repository and in the working tree. sqlx stores
+# migration checksums, so CRLF conversion would break existing databases.
+* text=auto eol=lf
+
+*.rs text eol=lf
+*.sql text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.example text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf

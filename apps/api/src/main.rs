@@ -20,6 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     db::ensure_database_dir(&cfg.database_url)?;
     std::fs::create_dir_all(&cfg.upload_dir)?;
+    std::fs::create_dir_all(&cfg.logo_dir)?;
 
     let pool = db::connect(&cfg.database_url).await?;
     db::migrate(&pool).await?;

@@ -53,7 +53,9 @@ pub struct Config {
     pub manual_qris_image_url: Option<String>,
     pub manual_bank_accounts: Vec<BankAccount>,
     pub upload_dir: String,
+    pub logo_dir: String,
     pub games_config_path: String,
+    pub logos_config_path: String,
 }
 
 impl Default for Config {
@@ -78,7 +80,9 @@ impl Default for Config {
             manual_qris_image_url: None,
             manual_bank_accounts: Vec::new(),
             upload_dir: "data/uploads".to_string(),
+            logo_dir: "data/logos".to_string(),
             games_config_path: "config/games.json".to_string(),
+            logos_config_path: "config/logos.json".to_string(),
         }
     }
 }
@@ -149,7 +153,9 @@ impl Config {
             manual_qris_image_url: var("MANUAL_QRIS_IMAGE_URL"),
             manual_bank_accounts,
             upload_dir: var_or("UPLOAD_DIR", &defaults.upload_dir),
+            logo_dir: var_or("LOGO_DIR", &defaults.logo_dir),
             games_config_path: var_or("GAMES_CONFIG_PATH", &defaults.games_config_path),
+            logos_config_path: var_or("LOGOS_CONFIG_PATH", &defaults.logos_config_path),
         })
     }
 }

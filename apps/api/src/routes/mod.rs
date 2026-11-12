@@ -47,10 +47,12 @@ pub fn router(state: AppState) -> Router {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
     let uploads = ServeDir::new(state.cfg.upload_dir.clone());
+    let logos = ServeDir::new(state.cfg.logo_dir.clone());
 
     Router::new()
         .nest("/api/v1", api)
         .nest_service("/uploads", uploads)
+        .nest_service("/logos", logos)
         .layer(cors)
         .layer(RequestBodyLimitLayer::new(3 * 1024 * 1024))
         .layer(DefaultBodyLimit::max(3 * 1024 * 1024))

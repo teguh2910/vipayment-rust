@@ -1,7 +1,9 @@
 use crate::{config::Config, db, error::AppError, provider, provider::Provider};
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+use std::time::Duration;
 use vipayment::{GameServiceItem, PrepaidServiceItem};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,6 +53,109 @@ struct NewProduct {
     available: bool,
 }
 
+/// Resolves and caches group logos. Domains come from `config/logos.json`
+/// (provider group name or prepaid brand -> official website domain) and the
+/// image itself is fetched once from the Google favicon service, then served
+/// from `/logos/...` so the storefront never hotlinks a third party.
+struct LogoCache {
+    domains: HashMap<String, String>,
+    client: Option<reqwest::Client>,
+    dir: String,
+}
+
+impl LogoCache {
+    async fn load(config_path: &str, dir: &str) -> Self {
+        let domains = match tokio::fs::read_to_string(config_path).await {
+            Ok(raw) => match serde_json::from_str::<HashMap<String, String>>(&raw) {
+                Ok(map) => map
+                    .into_iter()
+                    .map(|(key, value)| (key.to_ascii_lowercase(), value))
+                    .collect(),
+                Err(error) => {
+                    tracing::warn!(%error, path = config_path, "invalid logos config");
+                    HashMap::new()
+                }
+            },
+            Err(error) => {
+                tracing::debug!(%error, path = config_path, "logos config not found");
+                HashMap::new()
+            }
+        };
+
+        let client = reqwest::Client::builder()
+            .user_agent("vipayment-api/0.1")
+            .timeout(Duration::from_secs(8))
+            .build()
+            .ok();
+
+        Self {
+            domains,
+            client,
+            dir: dir.to_string(),
+        }
+    }
+
+    async fn resolve(&self, key: &str) -> Option<String> {
+        let domain = self.domains.get(&key.to_ascii_lowercase())?;
+        let client = self.client.as_ref()?;
+        let filename = cached_logo(client, &self.dir, domain).await?;
+        Some(format!("/logos/{filename}"))
+    }
+}
+
+async fn cached_logo(client: &reqwest::Client, dir: &str, domain: &str) -> Option<String> {
+    // Logos are cached per domain so groups sharing a site share one file.
+    let stem = slugify(domain);
+
+    for extension in ["png", "jpg", "webp"] {
+        let filename = format!("{stem}.{extension}");
+        if tokio::fs::metadata(Path::new(dir).join(&filename))
+            .await
+            .is_ok()
+        {
+            return Some(filename);
+        }
+    }
+
+    let url = format!("https://www.google.com/s2/favicons?domain={domain}&sz=128");
+    let response = client.get(url).send().await.ok()?;
+
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+
+    let extension = if content_type.contains("png") {
+        "png"
+    } else if content_type.contains("jpeg") || content_type.contains("jpg") {
+        "jpg"
+    } else if content_type.contains("webp") {
+        "webp"
+    } else {
+        return None;
+    };
+
+    let bytes = response.bytes().await.ok()?;
+    if bytes.len() < 100 || bytes.len() > 512 * 1024 {
+        return None;
+    }
+
+    tokio::fs::create_dir_all(dir).await.ok()?;
+    let filename = format!("{stem}.{extension}");
+    tokio::fs::write(Path::new(dir).join(&filename), &bytes)
+        .await
+        .ok()?;
+
+    tracing::debug!(domain, "logo cached");
+    Some(filename)
+}
+
 pub async fn load_seeds(path: &str) -> Result<Vec<GameSeed>, AppError> {
     let raw = tokio::fs::read_to_string(path)
         .await
@@ -66,6 +171,7 @@ pub async fn sync(
     cfg: &Config,
 ) -> Result<SyncReport, AppError> {
     let overrides = load_seeds(&cfg.games_config_path).await?;
+    let logos = LogoCache::load(&cfg.logos_config_path, &cfg.logo_dir).await;
     let mut report = SyncReport {
         groups: 0,
         products: 0,
@@ -78,8 +184,8 @@ pub async fn sync(
         .execute(pool)
         .await?;
 
-    sync_game_feature(pool, provider, cfg, &overrides, &mut report).await;
-    sync_prepaid(pool, provider, cfg, &mut report).await;
+    sync_game_feature(pool, provider, cfg, &overrides, &logos, &mut report).await;
+    sync_prepaid(pool, provider, cfg, &logos, &mut report).await;
 
     db::set_state(pool, "last_sync_at", &crate::now_rfc3339()).await;
     if report.errors.is_empty() {
@@ -96,6 +202,7 @@ async fn sync_game_feature(
     provider: &Provider,
     cfg: &Config,
     overrides: &[GameSeed],
+    logos: &LogoCache,
     report: &mut SyncReport,
 ) {
     let items = match provider.list_game_services(None).await {
@@ -136,15 +243,21 @@ async fn sync_game_feature(
             "game"
         };
 
+        let slug = meta
+            .map(|seed| seed.slug.clone())
+            .unwrap_or_else(|| format!("g-{}", slugify(provider_name)));
+        let icon_url = match meta.and_then(|seed| seed.icon_url.clone()) {
+            Some(icon) => Some(icon),
+            None => logos.resolve(provider_name).await,
+        };
+
         let group = GroupUpsert {
-            slug: meta
-                .map(|seed| seed.slug.clone())
-                .unwrap_or_else(|| format!("g-{}", slugify(provider_name))),
+            slug,
             name: meta
                 .map(|seed| seed.name.clone())
                 .unwrap_or_else(|| provider_name.to_string()),
             provider_name: provider_name.clone(),
-            icon_url: meta.and_then(|seed| seed.icon_url.clone()),
+            icon_url,
             requires_zone: meta.map(|seed| seed.requires_zone).unwrap_or(false),
             user_id_label: meta
                 .and_then(|seed| seed.user_id_label.clone())
@@ -176,6 +289,7 @@ async fn sync_prepaid(
     pool: &SqlitePool,
     provider: &Provider,
     cfg: &Config,
+    logos: &LogoCache,
     report: &mut SyncReport,
 ) {
     let items = match provider.list_prepaid_services().await {
@@ -210,11 +324,12 @@ async fn sync_prepaid(
     }
 
     for ((category, brand), items) in &groups {
+        let slug = format!("pp-{}-{}", slugify(category), slugify(brand));
         let group = GroupUpsert {
-            slug: format!("pp-{}-{}", slugify(category), slugify(brand)),
+            icon_url: logos.resolve(brand).await,
+            slug,
             name: prepaid_group_name(category, brand),
             provider_name: format!("{category}|{brand}"),
-            icon_url: None,
             requires_zone: false,
             user_id_label: prepaid_input_label(category).to_string(),
             zone_label: "Zone ID".to_string(),

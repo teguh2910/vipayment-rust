@@ -288,6 +288,7 @@ web/ (Next.js)  ──►  apps/api/ (axum + SQLite)  ──►  VIP Reseller AP
   - `simulation` — payment is auto-confirmed after a few seconds (local testing, no real money).
 - Once payment is confirmed, a background worker submits the order to the right provider endpoint (`/game-feature` for game/app groups, `/prepaid` for prepaid groups), polls its status, and stores the serial number.
 - Invoice tracking page, admin review panel, and a status timeline.
+- Group logos are resolved from the official game/brand website (Google favicon service), downloaded once during sync, and served locally from `/logos/...` — nothing is hotlinked from a third party. Groups without a mapped domain fall back to an initials tile.
 
 The provider API key never reaches the browser, and order prices are always read from the database (never from the client).
 
@@ -383,6 +384,8 @@ provider allowlist includes the server's public IP.
 | `MANUAL_QRIS_IMAGE_URL` | empty | optional QRIS image URL |
 | `MANUAL_BANK_ACCOUNTS` | empty | JSON array, single-quoted in `.env` |
 | `GAMES_CONFIG_PATH` | `config/games.json` | optional game metadata overrides |
+| `LOGOS_CONFIG_PATH` | `config/logos.json` | group/brand → official domain mapping |
+| `LOGO_DIR` | `data/logos` | cached logo files served at `/logos` |
 
 `config/games.json` is **optional metadata overrides** for game groups (display
 name, slug, icon, zone requirement, input labels, sort order). All groups are
@@ -390,6 +393,13 @@ discovered from the provider; a game without an override gets a generated slug,
 and any game group that is not listed there still accepts an optional
 zone/server field. Provider group names removed from the response are
 deactivated on the next sync (their historical orders stay intact).
+
+`config/logos.json` maps a provider group name (or prepaid brand) to its official
+website domain, for example `"Mobile Legends B": "mobilelegends.com"`. During a
+sync the API downloads the site icon once, caches it under `LOGO_DIR`
+(`data/logos`), and serves it from `GET /logos/{slug}.png`. Groups without a
+mapping keep the initials tile. To refresh a logo, edit the mapping and delete
+the cached file, then run `POST /api/v1/admin/sync-products`.
 
 ### API surface
 

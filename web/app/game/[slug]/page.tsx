@@ -8,6 +8,7 @@ import {
   apiFetch,
   errorMessage,
   fetcher,
+  fileUrl,
   type GameInfo,
   type OrderView,
   type Product,
@@ -113,12 +114,12 @@ export default function GamePage() {
 
       <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-400 text-xl font-black text-white">
-          {game.icon_url ? (
+          {fileUrl(game.icon_url) ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={game.icon_url}
+              src={fileUrl(game.icon_url)!}
               alt={game.name}
-              className="h-12 w-12 object-contain"
+              className="h-12 w-12 rounded-lg object-contain"
             />
           ) : (
             game.name.slice(0, 2).toUpperCase()
