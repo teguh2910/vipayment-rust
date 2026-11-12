@@ -314,6 +314,54 @@ npm run dev
 > sync and orders fail with `IP ... tidak diizinkan` (visible in
 > `GET /api/v1/health` as `last_sync_error`).
 
+### Docker
+
+The repository ships a Compose setup with two services:
+
+| File | Purpose |
+| --- | --- |
+| `apps/api/Dockerfile` | Multi-stage Rust build; runs as a non-root user on `debian:bookworm-slim` |
+| `web/Dockerfile` | Next.js standalone build; runs as a non-root user on `node:24-alpine` |
+| `docker-compose.yml` | `api` on `:8080`, `web` on `:3000`, named volume `api-data` |
+
+```bash
+# 1. API environment (provider credentials, ADMIN_TOKEN, payment mode)
+cp apps/api/.env.example apps/api/.env
+
+# 2. Build and start
+docker compose up --build -d
+
+# 3. Open
+# storefront  http://localhost:3000
+# admin       http://localhost:3000/admin
+# api health  http://localhost:8080/api/v1/health
+```
+
+The API container listens on `0.0.0.0:8080` (Compose overrides `BIND_ADDR`, which
+is `127.0.0.1` for local `cargo run`). SQLite data and uploaded payment proofs
+are stored in the `api-data` volume:
+
+```bash
+docker compose logs -f api web   # follow logs
+docker compose ps                # service status
+docker compose down              # stop (keeps the volume)
+docker compose down -v           # stop and delete database + proofs
+```
+
+`NEXT_PUBLIC_API_URL` is inlined into the browser bundle at build time, so it
+must be the URL the **browser** can reach (not a container hostname). Override it
+when building for a real domain:
+
+```bash
+NEXT_PUBLIC_API_URL=https://api.example.com docker compose build web
+NEXT_PUBLIC_API_URL=https://api.example.com docker compose up -d
+```
+
+For a public deployment also set `WEB_ORIGIN` in `apps/api/.env` to the public
+storefront URL (CORS allowlist), set a strong `ADMIN_TOKEN`, switch to
+`PAYMENT_PROVIDER=manual` with real QRIS/bank accounts, and make sure the
+provider allowlist includes the server's public IP.
+
 ### Configuration (`apps/api/.env`)
 
 | Variable | Default | Notes |

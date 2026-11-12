@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ./apps/api/.env
+    environment:
+      # Inside the container the API must listen on all interfaces.
+      BIND_ADDR: 0.0.0.0:8080
+      DATABASE_URL: sqlite://data/app.db
+      UPLOAD_DIR: data/uploads
+      GAMES_CONFIG_PATH: config/games.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - api-data:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        # Must be reachable from the browser, not from inside the container.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  api-data:
