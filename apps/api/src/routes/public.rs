@@ -1,9 +1,10 @@
 use crate::{db, error::AppError, format_idr, orders, uploads, AppState};
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     Json,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 #[derive(Debug, sqlx::FromRow)]
@@ -155,6 +156,20 @@ pub async fn products(
         },
         "products": products,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LookupQuery {
+    pub contact: String,
+}
+
+pub async fn lookup_orders(
+    State(state): State<AppState>,
+    Query(query): Query<LookupQuery>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(
+        orders::lookup_orders_by_contact(&state.pool, &query.contact).await?,
+    ))
 }
 
 pub async fn create_order(

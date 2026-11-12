@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 #[derive(Debug, Deserialize)]
 pub struct StatusQuery {
     pub status: Option<String>,
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -21,7 +22,7 @@ pub async fn payments(
     Query(query): Query<StatusQuery>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
-        orders::list_payments(&state.pool, query.status.as_deref()).await?,
+        orders::list_payments(&state.pool, query.status.as_deref(), query.q.as_deref()).await?,
     ))
 }
 
@@ -30,7 +31,7 @@ pub async fn orders(
     Query(query): Query<StatusQuery>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(
-        orders::list_orders(&state.pool, query.status.as_deref()).await?,
+        orders::list_orders(&state.pool, query.status.as_deref(), query.q.as_deref()).await?,
     ))
 }
 

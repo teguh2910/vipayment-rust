@@ -152,6 +152,15 @@ export type SyncReport = {
   errors: string[];
 };
 
+export type LookupOrder = {
+  invoice: string;
+  product_name: string;
+  amount: number;
+  amount_label: string;
+  status: string;
+  created_at: string;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,

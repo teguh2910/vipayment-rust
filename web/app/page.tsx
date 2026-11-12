@@ -93,12 +93,6 @@ export default function HomePage() {
           </p>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Cari game, pulsa, voucher..."
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/60 focus:outline-none sm:max-w-sm"
-            />
             <Link
               href="/lacak"
               className="inline-flex items-center justify-center rounded-xl border border-white/10 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/5"
@@ -120,6 +114,21 @@ export default function HomePage() {
           <span className="text-xs text-slate-500">
             {games.length} grup ditampilkan
           </span>
+        </div>
+
+        <div className="mb-4">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Cari game, pulsa, voucher, atau brand..."
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/60 focus:outline-none"
+          />
+          {query.trim() && (
+            <p className="mt-1.5 text-xs text-slate-500">
+              {games.length} hasil untuk &ldquo;{query.trim()}&rdquo;
+            </p>
+          )}
         </div>
 
         <div className="mb-5 flex flex-wrap gap-2">

@@ -35,6 +35,14 @@ export default function GamePage() {
   const game = data?.game;
   const products = data?.products ?? [];
   const product = products.find((item) => item.code === selected);
+  const [productQuery, setProductQuery] = useState("");
+  const visibleProducts = productQuery.trim()
+    ? products.filter((item) =>
+        `${item.name} ${item.code}`
+          .toLowerCase()
+          .includes(productQuery.trim().toLowerCase()),
+      )
+    : products;
 
   const canSubmit =
     Boolean(game && product) &&
@@ -136,16 +144,38 @@ export default function GamePage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="space-y-6">
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <h2 className="text-sm font-semibold text-slate-100">
-              Pilih nominal
-            </h2>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-100">
+                Pilih nominal
+              </h2>
+              {products.length > 0 && (
+                <span className="text-xs text-slate-500">
+                  {visibleProducts.length} dari {products.length} pilihan
+                </span>
+              )}
+            </div>
+
+            {products.length > 0 && (
+              <input
+                type="search"
+                value={productQuery}
+                onChange={(event) => setProductQuery(event.target.value)}
+                placeholder="Cari nominal (mis. 86, weekly)"
+                className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/60 focus:outline-none"
+              />
+            )}
+
             {products.length === 0 ? (
               <p className="mt-3 text-sm text-slate-400">
                 Belum ada nominal tersedia untuk game ini.
               </p>
+            ) : visibleProducts.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-400">
+                Tidak ada nominal yang cocok dengan pencarian.
+              </p>
             ) : (
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {products.map((item) => {
+                {visibleProducts.map((item) => {
                   const active = selected === item.code;
 
                   return (

@@ -303,3 +303,56 @@ async fn prepaid_order_uses_prepaid_endpoint_without_zone() {
     assert!(order_bodies[0].contains("data_no=51234567890"));
     assert!(!order_bodies[0].contains("data_zone"));
 }
+
+#[tokio::test]
+async fn lookup_orders_by_contact_accepts_phone_variants_and_email() {
+    let pool = test_pool().await;
+    seed_catalog(&pool).await;
+
+    let cfg = test_config("http://127.0.0.1:1".to_string());
+    let payments = payments::build(&cfg);
+
+    let created = orders::create_order(&pool, &cfg, payments.as_ref(), new_order_request())
+        .await
+        .unwrap();
+    let invoice = created["invoice"].as_str().unwrap().to_string();
+
+    // Stored as "081234567890"; look it up with international formatting.
+    let by_phone = orders::lookup_orders_by_contact(&pool, "+62 812-3456-7890")
+        .await
+        .unwrap();
+    let phone_orders = by_phone["orders"].as_array().unwrap();
+    assert_eq!(phone_orders.len(), 1);
+    assert_eq!(phone_orders[0]["invoice"], invoice);
+
+    let by_exact_phone = orders::lookup_orders_by_contact(&pool, "081234567890")
+        .await
+        .unwrap();
+    assert_eq!(by_exact_phone["orders"].as_array().unwrap().len(), 1);
+
+    let email_order = orders::create_order(
+        &pool,
+        &cfg,
+        payments.as_ref(),
+        orders::CreateOrderRequest {
+            contact: "Teguh@Example.com".to_string(),
+            idempotency_key: Some("email-key-1".to_string()),
+            ..new_order_request()
+        },
+    )
+    .await
+    .unwrap();
+    let email_invoice = email_order["invoice"].as_str().unwrap().to_string();
+
+    let by_email = orders::lookup_orders_by_contact(&pool, "teguh@example.com")
+        .await
+        .unwrap();
+    let email_orders = by_email["orders"].as_array().unwrap();
+    assert_eq!(email_orders.len(), 1);
+    assert_eq!(email_orders[0]["invoice"], email_invoice);
+
+    let unknown = orders::lookup_orders_by_contact(&pool, "089999999999")
+        .await
+        .unwrap();
+    assert!(unknown["orders"].as_array().unwrap().is_empty());
+}

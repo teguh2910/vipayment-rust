@@ -31,6 +31,7 @@ pub fn router(state: AppState) -> Router {
         .route("/games", get(public::games))
         .route("/games/{slug}/products", get(public::products))
         .route("/orders", post(public::create_order))
+        .route("/orders/lookup", get(public::lookup_orders))
         .route("/orders/{invoice}", get(public::order_detail))
         .route(
             "/orders/{invoice}/payment-proof",

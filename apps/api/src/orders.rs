@@ -9,7 +9,7 @@ use crate::{
 use rand::Rng;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
 pub const ORDER_COLUMNS: &str = "id, invoice, game_slug, product_code, product_name, user_id, zone, contact, \
 base_price, sell_price, amount, status, provider_trxid, provider_status, provider_sn, submit_attempts, \
@@ -743,33 +743,109 @@ struct AdminPaymentRow {
     created_at: String,
 }
 
-pub async fn list_payments(pool: &SqlitePool, status: Option<&str>) -> Result<Value, AppError> {
-    let filter = status.unwrap_or("awaiting_review");
-    let rows = if filter == "all" {
-        sqlx::query_as::<_, AdminPaymentRow>(
-            "SELECT o.invoice, o.game_slug, o.product_name, o.user_id, o.zone, o.contact,
-                    o.amount, o.status AS order_status, o.provider_trxid, o.provider_status,
-                    p.status AS payment_status, p.method, p.proof_path, p.proof_uploaded_at,
-                    p.expires_at, p.reject_reason, p.created_at
-             FROM payments p JOIN orders o ON o.id = p.order_id
-             ORDER BY p.id DESC LIMIT 200",
+#[derive(Debug, sqlx::FromRow)]
+struct LookupRow {
+    invoice: String,
+    product_name: String,
+    amount: i64,
+    status: String,
+    created_at: String,
+}
+
+pub async fn lookup_orders_by_contact(pool: &SqlitePool, contact: &str) -> Result<Value, AppError> {
+    let contact = contact.trim();
+    validate_field("kontak", contact, 64)?;
+
+    let rows = if contact.contains('@') {
+        sqlx::query_as::<_, LookupRow>(
+            "SELECT invoice, product_name, amount, status, created_at FROM orders
+             WHERE lower(contact) = lower(?) ORDER BY id DESC LIMIT 20",
         )
+        .bind(contact)
         .fetch_all(pool)
         .await?
     } else {
-        sqlx::query_as::<_, AdminPaymentRow>(
-            "SELECT o.invoice, o.game_slug, o.product_name, o.user_id, o.zone, o.contact,
-                    o.amount, o.status AS order_status, o.provider_trxid, o.provider_status,
-                    p.status AS payment_status, p.method, p.proof_path, p.proof_uploaded_at,
-                    p.expires_at, p.reject_reason, p.created_at
-             FROM payments p JOIN orders o ON o.id = p.order_id
-             WHERE p.status = ?
-             ORDER BY p.id DESC LIMIT 200",
+        let variants = crate::util::phone_variants(contact);
+        let Some(first) = variants.first() else {
+            return Err(AppError::BadRequest(
+                "kontak harus nomor WhatsApp atau email yang valid".into(),
+            ));
+        };
+        if first.len() < 8 {
+            return Err(AppError::BadRequest(
+                "kontak harus nomor WhatsApp atau email yang valid".into(),
+            ));
+        }
+        let second = variants.get(1).unwrap_or(first);
+
+        sqlx::query_as::<_, LookupRow>(
+            "SELECT invoice, product_name, amount, status, created_at FROM orders
+             WHERE replace(replace(replace(replace(contact, ' ', ''), '-', ''), '+', ''), '.', '')
+                   IN (?, ?)
+             ORDER BY id DESC LIMIT 20",
         )
-        .bind(filter)
+        .bind(first)
+        .bind(second)
         .fetch_all(pool)
         .await?
     };
+
+    Ok(json!({
+        "orders": rows.into_iter().map(|row| json!({
+            "invoice": row.invoice,
+            "product_name": row.product_name,
+            "amount": row.amount,
+            "amount_label": format_idr(row.amount),
+            "status": row.status,
+            "created_at": row.created_at,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+pub async fn list_payments(
+    pool: &SqlitePool,
+    status: Option<&str>,
+    search: Option<&str>,
+) -> Result<Value, AppError> {
+    let filter = status.unwrap_or("awaiting_review");
+    let pattern = search
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
+
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT o.invoice, o.game_slug, o.product_name, o.user_id, o.zone, o.contact,
+                o.amount, o.status AS order_status, o.provider_trxid, o.provider_status,
+                p.status AS payment_status, p.method, p.proof_path, p.proof_uploaded_at,
+                p.expires_at, p.reject_reason, p.created_at
+         FROM payments p JOIN orders o ON o.id = p.order_id
+         WHERE 1 = 1",
+    );
+
+    if filter != "all" {
+        builder.push(" AND p.status = ").push_bind(filter);
+    }
+
+    if let Some(pattern) = pattern.as_deref() {
+        builder
+            .push(" AND (o.invoice LIKE ")
+            .push_bind(pattern)
+            .push(" OR o.product_name LIKE ")
+            .push_bind(pattern)
+            .push(" OR o.user_id LIKE ")
+            .push_bind(pattern)
+            .push(" OR o.contact LIKE ")
+            .push_bind(pattern)
+            .push(" OR o.provider_trxid LIKE ")
+            .push_bind(pattern)
+            .push(")");
+    }
+
+    builder.push(" ORDER BY p.id DESC LIMIT 200");
+    let rows = builder
+        .build_query_as::<AdminPaymentRow>()
+        .fetch_all(pool)
+        .await?;
 
     Ok(json!({
         "payments": rows.into_iter().map(|row| json!({
@@ -795,22 +871,43 @@ pub async fn list_payments(pool: &SqlitePool, status: Option<&str>) -> Result<Va
     }))
 }
 
-pub async fn list_orders(pool: &SqlitePool, status: Option<&str>) -> Result<Value, AppError> {
+pub async fn list_orders(
+    pool: &SqlitePool,
+    status: Option<&str>,
+    search: Option<&str>,
+) -> Result<Value, AppError> {
     let filter = status.unwrap_or("all");
-    let sql = if filter == "all" {
-        format!("SELECT {ORDER_COLUMNS} FROM orders ORDER BY id DESC LIMIT 200")
-    } else {
-        format!("SELECT {ORDER_COLUMNS} FROM orders WHERE status = ? ORDER BY id DESC LIMIT 200")
-    };
+    let pattern = search
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"));
 
-    let rows = if filter == "all" {
-        sqlx::query_as::<_, OrderRow>(&sql).fetch_all(pool).await?
-    } else {
-        sqlx::query_as::<_, OrderRow>(&sql)
-            .bind(filter)
-            .fetch_all(pool)
-            .await?
-    };
+    let mut builder =
+        QueryBuilder::<Sqlite>::new(format!("SELECT {ORDER_COLUMNS} FROM orders WHERE 1 = 1"));
+
+    if filter != "all" {
+        builder.push(" AND status = ").push_bind(filter);
+    }
+
+    if let Some(pattern) = pattern.as_deref() {
+        builder
+            .push(" AND (invoice LIKE ")
+            .push_bind(pattern)
+            .push(" OR product_name LIKE ")
+            .push_bind(pattern)
+            .push(" OR user_id LIKE ")
+            .push_bind(pattern)
+            .push(" OR contact LIKE ")
+            .push_bind(pattern)
+            .push(" OR provider_trxid LIKE ")
+            .push_bind(pattern)
+            .push(" OR provider_sn LIKE ")
+            .push_bind(pattern)
+            .push(")");
+    }
+
+    builder.push(" ORDER BY id DESC LIMIT 200");
+    let rows = builder.build_query_as::<OrderRow>().fetch_all(pool).await?;
 
     Ok(json!({
         "orders": rows.into_iter().map(|order| json!({

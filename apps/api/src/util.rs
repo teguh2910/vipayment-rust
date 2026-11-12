@@ -46,6 +46,31 @@ pub fn constant_time_eq(left: &str, right: &str) -> bool {
     diff == 0
 }
 
+pub fn phone_digits(value: &str) -> String {
+    value.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+/// Returns the digit forms of a phone number that could match a stored contact
+/// (`0812...`, `62812...`, `+62 812-...`).
+pub fn phone_variants(value: &str) -> Vec<String> {
+    let digits = phone_digits(value);
+    let mut variants = vec![digits.clone()];
+
+    if let Some(rest) = digits.strip_prefix("62") {
+        if rest.len() >= 8 {
+            variants.push(format!("0{rest}"));
+        }
+    } else if let Some(rest) = digits.strip_prefix('0') {
+        if rest.len() >= 8 {
+            variants.push(format!("62{rest}"));
+        }
+    }
+
+    variants.sort();
+    variants.dedup();
+    variants
+}
+
 pub fn mask_contact(contact: &str) -> String {
     let contact = contact.trim();
 
@@ -82,6 +107,19 @@ mod tests {
         assert_eq!(mask_contact("081234567890"), "0812****890");
         assert_eq!(mask_contact("teguh@example.com"), "te***@example.com");
         assert_eq!(mask_contact("12345"), "****");
+    }
+
+    #[test]
+    fn builds_phone_variants_for_lookup() {
+        assert_eq!(
+            phone_variants("+62 812-3456-7890"),
+            vec!["081234567890".to_string(), "6281234567890".to_string()]
+        );
+        assert_eq!(
+            phone_variants("0812 3456 7890"),
+            vec!["081234567890".to_string(), "6281234567890".to_string()]
+        );
+        assert_eq!(phone_variants("0812"), vec!["0812".to_string()]);
     }
 
     #[test]

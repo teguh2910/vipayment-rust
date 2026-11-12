@@ -28,6 +28,13 @@ export default function AdminPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [syncReport, setSyncReport] = useState<SyncReport | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(id);
+  }, [search]);
 
   useEffect(() => {
     const saved = window.sessionStorage.getItem(TOKEN_KEY);
@@ -51,7 +58,9 @@ export default function AdminPage() {
     payments: AdminPayment[];
   }>(
     token && tab === "payments"
-      ? `/admin/payments?status=${paymentFilter}`
+      ? `/admin/payments?status=${paymentFilter}&q=${encodeURIComponent(
+          debouncedSearch,
+        )}`
       : null,
     adminFetch,
     { refreshInterval: 5000 },
@@ -60,7 +69,11 @@ export default function AdminPage() {
   const { data: ordersData, mutate: mutateOrders } = useSWR<{
     orders: AdminOrder[];
   }>(
-    token && tab === "orders" ? `/admin/orders?status=${orderFilter}` : null,
+    token && tab === "orders"
+      ? `/admin/orders?status=${orderFilter}&q=${encodeURIComponent(
+          debouncedSearch,
+        )}`
+      : null,
     adminFetch,
     { refreshInterval: 5000 },
   );
@@ -221,6 +234,16 @@ export default function AdminPage() {
           </button>
         ))}
       </div>
+
+      {tab !== "catalog" && (
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Cari invoice, produk, User ID, kontak, atau Trx ID..."
+          className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/60 focus:outline-none"
+        />
+      )}
 
       {tab === "payments" && (
         <div className={CARD}>
