@@ -1,4 +1,4 @@
-use std::{env, net::SocketAddr, time::Duration};
+use std::{collections::HashMap, env, net::SocketAddr, time::Duration};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaymentProviderKind {
@@ -48,6 +48,7 @@ pub struct Config {
     pub payment_provider: PaymentProviderKind,
     pub payment_expiry_minutes: i64,
     pub markup_percent: i64,
+    pub markup_by_category: HashMap<String, i64>,
     pub simulation_auto_pay_seconds: i64,
     pub max_order_amount: i64,
     pub manual_qris_image_url: Option<String>,
@@ -75,6 +76,7 @@ impl Default for Config {
             payment_provider: PaymentProviderKind::Manual,
             payment_expiry_minutes: 1440,
             markup_percent: 5,
+            markup_by_category: HashMap::new(),
             simulation_auto_pay_seconds: 5,
             max_order_amount: 10_000_000,
             manual_qris_image_url: None,
@@ -124,6 +126,11 @@ impl Config {
             None => Vec::new(),
         };
 
+        let markup_by_category = match var("MARKUP_BY_CATEGORY") {
+            Some(raw) => parse_markup_map(&raw)?,
+            None => HashMap::new(),
+        };
+
         Ok(Self {
             bind_addr,
             database_url: var_or("DATABASE_URL", &defaults.database_url),
@@ -145,6 +152,7 @@ impl Config {
                 defaults.payment_expiry_minutes,
             )?,
             markup_percent: parse_num("MARKUP_PERCENT", defaults.markup_percent)?,
+            markup_by_category,
             simulation_auto_pay_seconds: parse_num(
                 "SIMULATION_AUTO_PAY_SECONDS",
                 defaults.simulation_auto_pay_seconds,
@@ -158,6 +166,32 @@ impl Config {
             logos_config_path: var_or("LOGOS_CONFIG_PATH", &defaults.logos_config_path),
         })
     }
+
+    /// Margin for a catalog category, falling back to `MARKUP_PERCENT`.
+    pub fn markup_percent_for(&self, category: &str) -> i64 {
+        self.markup_by_category
+            .get(&category.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(self.markup_percent)
+    }
+}
+
+fn parse_markup_map(raw: &str) -> Result<HashMap<String, i64>, String> {
+    let parsed: HashMap<String, i64> = serde_json::from_str(raw)
+        .map_err(|e| format!("MARKUP_BY_CATEGORY bukan JSON yang valid: {e}"))?;
+
+    for (category, percent) in &parsed {
+        if !(0..=1000).contains(percent) {
+            return Err(format!(
+                "MARKUP_BY_CATEGORY[{category}] harus antara 0 dan 1000"
+            ));
+        }
+    }
+
+    Ok(parsed
+        .into_iter()
+        .map(|(category, percent)| (category.to_ascii_lowercase(), percent))
+        .collect())
 }
 
 fn var(name: &str) -> Option<String> {
@@ -187,5 +221,33 @@ fn bool_var(name: &str, default: bool) -> bool {
     match var(name).map(|value| value.to_ascii_lowercase()) {
         Some(value) => matches!(value.as_str(), "true" | "1" | "yes" | "on"),
         None => default,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_category_markups_case_insensitively() {
+        let markups = parse_markup_map(r#"{"game": 7, "APP": 10, "pulsa-reguler": 4}"#).unwrap();
+
+        assert_eq!(markups.get("game"), Some(&7));
+        assert_eq!(markups.get("app"), Some(&10));
+        assert_eq!(markups.get("pulsa-reguler"), Some(&4));
+    }
+
+    #[test]
+    fn rejects_invalid_category_markups() {
+        assert!(parse_markup_map("not json").is_err());
+        assert!(parse_markup_map(r#"{"game": -1}"#).is_err());
+        assert!(parse_markup_map(r#"{"game": 1001}"#).is_err());
+    }
+
+    #[test]
+    fn falls_back_to_default_markup() {
+        let config = Config::default();
+        assert_eq!(config.markup_percent_for("game"), config.markup_percent);
+        assert_eq!(config.markup_percent_for("unknown"), config.markup_percent);
     }
 }

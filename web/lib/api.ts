@@ -143,6 +143,8 @@ export type AdminProfile = {
     status?: string;
   } | null;
   signature_ok: boolean;
+  markup_percent: number;
+  markup_by_category: Record<string, number>;
 };
 
 export type SyncReport = {

@@ -281,7 +281,10 @@ web/ (Next.js)  ──►  apps/api/ (axum + SQLite)  ──►  VIP Reseller AP
 - Syncs the full provider catalog into SQLite every 30 minutes:
   - `/game-feature` groups (games, apps, streaming, vouchers) — 98 groups;
   - `/prepaid` groups (pulsa, paket data, telepon, PLN, e-wallet, TV, voucher) grouped by type + brand.
-  `MARKUP_PERCENT` is applied to every product. Provider prices arrive as tier objects (`{"basic": ..., "premium": ..., "special": ...}`); the `basic` tier is used as the cost basis.
+  `MARKUP_PERCENT` is applied to every product, with optional per-category
+  overrides through `MARKUP_BY_CATEGORY`. Provider prices arrive as tier objects
+  (`{"basic": ..., "premium": ..., "special": ...}`); the `basic` tier is used as
+  the cost basis.
 - Guest checkout for every category: pick a product, fill the target (game ID + zone, phone number, or meter number), receive an invoice.
 - Pluggable payment adapter:
   - `manual` — static QRIS / bank transfer, customer uploads proof, admin approves it.
@@ -412,8 +415,30 @@ last manual sync.
 | `MANUAL_QRIS_IMAGE_URL` | empty | optional QRIS image URL |
 | `MANUAL_BANK_ACCOUNTS` | empty | JSON array, single-quoted in `.env` |
 | `GAMES_CONFIG_PATH` | `config/games.json` | optional game metadata overrides |
+| `MARKUP_PERCENT` | `5` | default margin for every category |
+| `MARKUP_BY_CATEGORY` | empty | JSON map of per-category margins |
 | `LOGOS_CONFIG_PATH` | `config/logos.json` | group/brand → official domain mapping |
 | `LOGO_DIR` | `data/logos` | cached logo files served at `/logos` |
+
+### Pricing and margins
+
+`MARKUP_PERCENT` is the default margin for every group. Override it per category
+with `MARKUP_BY_CATEGORY` (JSON object, single-quoted in `.env`):
+
+```dotenv
+MARKUP_PERCENT=5
+MARKUP_BY_CATEGORY='{"game": 7, "app": 10, "pulsa-reguler": 4, "token-pln": 3}'
+```
+
+Valid keys are `game`, `app`, and the prepaid provider types:
+`pulsa-reguler`, `pulsa-transfer`, `pulsa-internasional`, `paket-internet`,
+`paket-telepon`, `paket-lainnya`, `saldo-emoney`, `token-pln`, `streaming-tv`,
+`voucher-game`. Unknown keys are ignored and missing keys fall back to
+`MARKUP_PERCENT`. Prices are rounded up to the next rupiah.
+
+Margins are applied during a catalog sync. After editing `.env`, restart the API
+and trigger a sync (admin **Katalog & saldo** → **Sync sekarang**) or wait up to
+30 minutes. The admin tab shows the active default and per-category margins.
 
 `config/games.json` is **optional metadata overrides** for game groups (display
 name, slug, icon, zone requirement, input labels, sort order). All groups are
