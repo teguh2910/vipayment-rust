@@ -94,5 +94,6 @@ pub async fn profile(State(state): State<AppState>) -> Result<Json<Value>, AppEr
             .signature_matches(state.cfg.provider_sign.as_deref()),
         "markup_percent": state.cfg.markup_percent,
         "markup_by_category": &state.cfg.markup_by_category,
+        "markup_fixed_by_category": &state.cfg.markup_fixed_by_category,
     })))
 }

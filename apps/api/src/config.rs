@@ -49,6 +49,7 @@ pub struct Config {
     pub payment_expiry_minutes: i64,
     pub markup_percent: i64,
     pub markup_by_category: HashMap<String, i64>,
+    pub markup_fixed_by_category: HashMap<String, i64>,
     pub simulation_auto_pay_seconds: i64,
     pub max_order_amount: i64,
     pub manual_qris_image_url: Option<String>,
@@ -77,6 +78,7 @@ impl Default for Config {
             payment_expiry_minutes: 1440,
             markup_percent: 5,
             markup_by_category: HashMap::new(),
+            markup_fixed_by_category: HashMap::new(),
             simulation_auto_pay_seconds: 5,
             max_order_amount: 10_000_000,
             manual_qris_image_url: None,
@@ -131,6 +133,11 @@ impl Config {
             None => HashMap::new(),
         };
 
+        let markup_fixed_by_category = match var("MARKUP_FIXED_BY_CATEGORY") {
+            Some(raw) => parse_fixed_markup_map(&raw)?,
+            None => HashMap::new(),
+        };
+
         Ok(Self {
             bind_addr,
             database_url: var_or("DATABASE_URL", &defaults.database_url),
@@ -153,6 +160,7 @@ impl Config {
             )?,
             markup_percent: parse_num("MARKUP_PERCENT", defaults.markup_percent)?,
             markup_by_category,
+            markup_fixed_by_category,
             simulation_auto_pay_seconds: parse_num(
                 "SIMULATION_AUTO_PAY_SECONDS",
                 defaults.simulation_auto_pay_seconds,
@@ -167,30 +175,60 @@ impl Config {
         })
     }
 
-    /// Margin for a catalog category, falling back to `MARKUP_PERCENT`.
-    pub fn markup_percent_for(&self, category: &str) -> i64 {
-        self.markup_by_category
-            .get(&category.to_ascii_lowercase())
-            .copied()
-            .unwrap_or(self.markup_percent)
+    /// Pricing rule for a catalog category. A fixed rupiah margin takes
+    /// precedence over a percentage; both fall back to `MARKUP_PERCENT`.
+    pub fn category_pricing(&self, category: &str) -> CategoryPricing {
+        let key = category.to_ascii_lowercase();
+
+        if let Some(amount) = self.markup_fixed_by_category.get(&key) {
+            return CategoryPricing::Fixed(*amount);
+        }
+
+        CategoryPricing::Percent(
+            self.markup_by_category
+                .get(&key)
+                .copied()
+                .unwrap_or(self.markup_percent),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CategoryPricing {
+    Percent(i64),
+    Fixed(i64),
+}
+
+impl CategoryPricing {
+    pub fn sell_price(self, base_price: i64) -> i64 {
+        match self {
+            Self::Percent(percent) => crate::provider::markup(base_price, percent),
+            Self::Fixed(amount) => base_price + amount,
+        }
     }
 }
 
 fn parse_markup_map(raw: &str) -> Result<HashMap<String, i64>, String> {
-    let parsed: HashMap<String, i64> = serde_json::from_str(raw)
-        .map_err(|e| format!("MARKUP_BY_CATEGORY bukan JSON yang valid: {e}"))?;
+    parse_category_map(raw, "MARKUP_BY_CATEGORY", 1000)
+}
 
-    for (category, percent) in &parsed {
-        if !(0..=1000).contains(percent) {
-            return Err(format!(
-                "MARKUP_BY_CATEGORY[{category}] harus antara 0 dan 1000"
-            ));
+fn parse_fixed_markup_map(raw: &str) -> Result<HashMap<String, i64>, String> {
+    parse_category_map(raw, "MARKUP_FIXED_BY_CATEGORY", 1_000_000)
+}
+
+fn parse_category_map(raw: &str, name: &str, max: i64) -> Result<HashMap<String, i64>, String> {
+    let parsed: HashMap<String, i64> =
+        serde_json::from_str(raw).map_err(|e| format!("{name} bukan JSON yang valid: {e}"))?;
+
+    for (category, value) in &parsed {
+        if !(0..=max).contains(value) {
+            return Err(format!("{name}[{category}] harus antara 0 dan {max}"));
         }
     }
 
     Ok(parsed
         .into_iter()
-        .map(|(category, percent)| (category.to_ascii_lowercase(), percent))
+        .map(|(category, value)| (category.to_ascii_lowercase(), value))
         .collect())
 }
 
@@ -245,9 +283,42 @@ mod tests {
     }
 
     #[test]
+    fn parses_fixed_category_markups() {
+        let markups =
+            parse_fixed_markup_map(r#"{"pulsa-reguler": 500, "TOKEN-PLN": 1000}"#).unwrap();
+
+        assert_eq!(markups.get("pulsa-reguler"), Some(&500));
+        assert_eq!(markups.get("token-pln"), Some(&1000));
+        assert!(parse_fixed_markup_map(r#"{"token-pln": -1}"#).is_err());
+        assert!(parse_fixed_markup_map(r#"{"token-pln": 1000001}"#).is_err());
+    }
+
+    #[test]
     fn falls_back_to_default_markup() {
         let config = Config::default();
-        assert_eq!(config.markup_percent_for("game"), config.markup_percent);
-        assert_eq!(config.markup_percent_for("unknown"), config.markup_percent);
+        assert_eq!(
+            config.category_pricing("game"),
+            CategoryPricing::Percent(config.markup_percent)
+        );
+        assert_eq!(
+            config.category_pricing("unknown"),
+            CategoryPricing::Percent(config.markup_percent)
+        );
+    }
+
+    #[test]
+    fn fixed_margin_takes_precedence_over_percent() {
+        let mut config = Config::default();
+        config.markup_by_category.insert("token-pln".to_string(), 4);
+        config
+            .markup_fixed_by_category
+            .insert("token-pln".to_string(), 1000);
+
+        assert_eq!(
+            config.category_pricing("token-pln"),
+            CategoryPricing::Fixed(1000)
+        );
+        assert_eq!(CategoryPricing::Fixed(1000).sell_price(10_000), 11_000);
+        assert_eq!(CategoryPricing::Percent(5).sell_price(10_000), 10_500);
     }
 }

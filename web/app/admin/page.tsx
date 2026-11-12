@@ -573,32 +573,67 @@ export default function AdminPage() {
               </span>
             </div>
 
-            {Object.keys(profile?.markup_by_category ?? {}).length === 0 ? (
+            {Object.keys(profile?.markup_by_category ?? {}).length === 0 &&
+            Object.keys(profile?.markup_fixed_by_category ?? {}).length === 0 ? (
               <p className="mt-2 text-xs text-slate-500">
                 Belum ada override per kategori; semua memakai margin default.
               </p>
             ) : (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(profile?.markup_by_category ?? {})
-                  .sort(([left], [right]) => left.localeCompare(right))
-                  .map(([category, percent]) => (
-                    <div
-                      key={category}
-                      className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-xs"
-                    >
-                      <span className="text-slate-300">{category}</span>
-                      <span className="font-medium text-cyan-300">
-                        {percent}%
-                      </span>
+              <div className="mt-3 space-y-4">
+                {Object.keys(profile?.markup_by_category ?? {}).length > 0 && (
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Margin persen
+                    </p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {Object.entries(profile?.markup_by_category ?? {})
+                        .sort(([left], [right]) => left.localeCompare(right))
+                        .map(([category, percent]) => (
+                          <div
+                            key={category}
+                            className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-xs"
+                          >
+                            <span className="text-slate-300">{category}</span>
+                            <span className="font-medium text-cyan-300">
+                              {percent}%
+                            </span>
+                          </div>
+                        ))}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {Object.keys(profile?.markup_fixed_by_category ?? {}).length >
+                  0 && (
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Margin nominal (Rp)
+                    </p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {Object.entries(profile?.markup_fixed_by_category ?? {})
+                        .sort(([left], [right]) => left.localeCompare(right))
+                        .map(([category, amount]) => (
+                          <div
+                            key={category}
+                            className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-xs"
+                          >
+                            <span className="text-slate-300">{category}</span>
+                            <span className="font-medium text-emerald-300">
+                              Rp {amount.toLocaleString("id-ID")}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-              Ubah <code>MARKUP_BY_CATEGORY</code> di{" "}
-              <code>apps/api/.env</code>, restart API, lalu tekan Sync sekarang.
-              Kategori: game, app, pulsa-reguler, pulsa-transfer,
+              Ubah <code>MARKUP_BY_CATEGORY</code> (persen) atau{" "}
+              <code>MARKUP_FIXED_BY_CATEGORY</code> (nominal rupiah, menang atas
+              persen) di <code>apps/api/.env</code>, restart API, lalu tekan Sync
+              sekarang. Kategori: game, app, pulsa-reguler, pulsa-transfer,
               pulsa-internasional, paket-internet, paket-telepon, paket-lainnya,
               saldo-emoney, token-pln, streaming-tv, voucher-game.
             </p>

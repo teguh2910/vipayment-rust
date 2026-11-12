@@ -416,7 +416,8 @@ last manual sync.
 | `MANUAL_BANK_ACCOUNTS` | empty | JSON array, single-quoted in `.env` |
 | `GAMES_CONFIG_PATH` | `config/games.json` | optional game metadata overrides |
 | `MARKUP_PERCENT` | `5` | default margin for every category |
-| `MARKUP_BY_CATEGORY` | empty | JSON map of per-category margins |
+| `MARKUP_BY_CATEGORY` | empty | JSON map of per-category percentages |
+| `MARKUP_FIXED_BY_CATEGORY` | empty | JSON map of per-category rupiah margins |
 | `LOGOS_CONFIG_PATH` | `config/logos.json` | group/brand → official domain mapping |
 | `LOGO_DIR` | `data/logos` | cached logo files served at `/logos` |
 
@@ -435,6 +436,16 @@ Valid keys are `game`, `app`, and the prepaid provider types:
 `paket-telepon`, `paket-lainnya`, `saldo-emoney`, `token-pln`, `streaming-tv`,
 `voucher-game`. Unknown keys are ignored and missing keys fall back to
 `MARKUP_PERCENT`. Prices are rounded up to the next rupiah.
+
+For pulsa and PLN tokens you can use a **fixed rupiah margin** instead of a
+percentage:
+
+```dotenv
+MARKUP_FIXED_BY_CATEGORY='{"pulsa-reguler": 500, "pulsa-transfer": 500, "pulsa-internasional": 1000, "token-pln": 1000}'
+```
+
+A fixed margin takes precedence over a percentage for the same category
+(`sell = base + margin`). Rupiah margins are capped at 1,000,000.
 
 Margins are applied during a catalog sync. After editing `.env`, restart the API
 and trigger a sync (admin **Katalog & saldo** → **Sync sekarang**) or wait up to

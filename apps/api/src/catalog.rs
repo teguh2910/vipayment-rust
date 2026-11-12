@@ -1,4 +1,10 @@
-use crate::{config::Config, db, error::AppError, provider, provider::Provider};
+use crate::{
+    config::{CategoryPricing, Config},
+    db,
+    error::AppError,
+    provider,
+    provider::Provider,
+};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap};
@@ -283,7 +289,7 @@ async fn sync_game_feature(
         let slug = meta
             .map(|seed| seed.slug.clone())
             .unwrap_or_else(|| format!("g-{}", slugify(provider_name)));
-        let markup_percent = cfg.markup_percent_for(kind);
+        let pricing = cfg.category_pricing(kind);
         let icon_url = match meta.and_then(|seed| seed.icon_url.clone()) {
             Some(icon) => Some(icon),
             None => logos.resolve(provider_name).await,
@@ -313,9 +319,7 @@ async fn sync_game_feature(
 
         match upsert_group(pool, &group).await {
             Ok(()) => {
-                match replace_products(pool, &group.slug, game_products(items, markup_percent))
-                    .await
-                {
+                match replace_products(pool, &group.slug, game_products(items, pricing)).await {
                     Ok(stored) => {
                         report.groups += 1;
                         report.products += stored;
@@ -370,7 +374,7 @@ async fn sync_prepaid(
 
     for ((category, brand), items) in &groups {
         let slug = format!("pp-{}-{}", slugify(category), slugify(brand));
-        let markup_percent = cfg.markup_percent_for(category);
+        let pricing = cfg.category_pricing(category);
         let icon_url = logos.resolve(brand).await;
         if icon_url.is_some() {
             report.logos += 1;
@@ -390,12 +394,8 @@ async fn sync_prepaid(
 
         match upsert_group(pool, &group).await {
             Ok(()) => {
-                match replace_products(
-                    pool,
-                    &group.slug,
-                    prepaid_products(items, brand, markup_percent),
-                )
-                .await
+                match replace_products(pool, &group.slug, prepaid_products(items, brand, pricing))
+                    .await
                 {
                     Ok(stored) => {
                         report.groups += 1;
@@ -493,7 +493,7 @@ async fn replace_products(
     Ok(stored)
 }
 
-fn game_products(items: &[GameServiceItem], markup_percent: i64) -> Vec<NewProduct> {
+fn game_products(items: &[GameServiceItem], pricing: CategoryPricing) -> Vec<NewProduct> {
     items
         .iter()
         .filter_map(|item| {
@@ -512,7 +512,7 @@ fn game_products(items: &[GameServiceItem], markup_percent: i64) -> Vec<NewProdu
                 name: item.name.clone().unwrap_or_else(|| code.to_string()),
                 brand: None,
                 base_price,
-                sell_price: provider::markup(base_price, markup_percent),
+                sell_price: pricing.sell_price(base_price),
                 available: is_available(provider_status.as_deref()),
                 provider_status,
             })
@@ -523,7 +523,7 @@ fn game_products(items: &[GameServiceItem], markup_percent: i64) -> Vec<NewProdu
 fn prepaid_products(
     items: &[PrepaidServiceItem],
     brand: &str,
-    markup_percent: i64,
+    pricing: CategoryPricing,
 ) -> Vec<NewProduct> {
     items
         .iter()
@@ -543,7 +543,7 @@ fn prepaid_products(
                 name: item.name.clone().unwrap_or_else(|| code.to_string()),
                 brand: Some(brand.to_string()),
                 base_price,
-                sell_price: provider::markup(base_price, markup_percent),
+                sell_price: pricing.sell_price(base_price),
                 available: is_available(provider_status.as_deref()),
                 provider_status,
             })

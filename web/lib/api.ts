@@ -145,6 +145,7 @@ export type AdminProfile = {
   signature_ok: boolean;
   markup_percent: number;
   markup_by_category: Record<string, number>;
+  markup_fixed_by_category: Record<string, number>;
 };
 
 export type SyncReport = {
