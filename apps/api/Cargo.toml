@@ -1,0 +1,28 @@
+[package]
+name = "vipayment-api"
+version = "0.1.0"
+edition = "2021"
+description = "Web top-up API for game products powered by the vipayment SDK"
+license = "MIT"
+publish = false
+
+[dependencies]
+vipayment = { path = "../.." }
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+rand = "0.8"
+
+[dev-dependencies]
+wiremock = "0.6"

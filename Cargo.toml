@@ -1,3 +1,8 @@
+[workspace]
+members = ["apps/api"]
+default-members = ["."]
+resolver = "2"
+
 [package]
 name = "vipayment"
 version = "0.1.0"

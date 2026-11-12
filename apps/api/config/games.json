@@ -1,0 +1,168 @@
+[
+  {
+    "slug": "mobile-legends",
+    "provider_name": "Mobile Legends B",
+    "name": "Mobile Legends",
+    "requires_zone": true,
+    "user_id_label": "User ID",
+    "zone_label": "Zone ID",
+    "sort_order": 1
+  },
+  {
+    "slug": "free-fire",
+    "provider_name": "Free Fire",
+    "name": "Free Fire",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 2
+  },
+  {
+    "slug": "free-fire-max",
+    "provider_name": "Free Fire Max",
+    "name": "Free Fire Max",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 3
+  },
+  {
+    "slug": "pubg-mobile",
+    "provider_name": "PUBG Mobile (ID)",
+    "name": "PUBG Mobile",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 4
+  },
+  {
+    "slug": "genshin-impact",
+    "provider_name": "Genshin Impact",
+    "name": "Genshin Impact",
+    "requires_zone": true,
+    "user_id_label": "UID",
+    "zone_label": "Server",
+    "sort_order": 5
+  },
+  {
+    "slug": "honkai-star-rail",
+    "provider_name": "Honkai Star Rail",
+    "name": "Honkai: Star Rail",
+    "requires_zone": true,
+    "user_id_label": "UID",
+    "zone_label": "Server",
+    "sort_order": 6
+  },
+  {
+    "slug": "valorant",
+    "provider_name": "Valorant",
+    "name": "Valorant",
+    "requires_zone": false,
+    "user_id_label": "Riot ID",
+    "sort_order": 7
+  },
+  {
+    "slug": "call-of-duty-mobile",
+    "provider_name": "Call Of Duty Mobile (Indonesia)",
+    "name": "Call of Duty Mobile",
+    "requires_zone": false,
+    "user_id_label": "Open ID",
+    "sort_order": 8
+  },
+  {
+    "slug": "arena-of-valor",
+    "provider_name": "Arena of Valor",
+    "name": "Arena of Valor",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 9
+  },
+  {
+    "slug": "league-of-legends",
+    "provider_name": "League of Legends",
+    "name": "League of Legends",
+    "requires_zone": false,
+    "user_id_label": "Riot ID",
+    "sort_order": 10
+  },
+  {
+    "slug": "honor-of-kings",
+    "provider_name": "Honor of Kings Global",
+    "name": "Honor of Kings",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 11
+  },
+  {
+    "slug": "magic-chess-go-go",
+    "provider_name": "Magic Chess: Go Go",
+    "name": "Magic Chess: Go Go",
+    "requires_zone": true,
+    "user_id_label": "User ID",
+    "zone_label": "Zone ID",
+    "sort_order": 12
+  },
+  {
+    "slug": "roblox",
+    "provider_name": "Voucher Roblox",
+    "name": "Roblox",
+    "requires_zone": false,
+    "user_id_label": "Username",
+    "sort_order": 13
+  },
+  {
+    "slug": "point-blank",
+    "provider_name": "Point Blank (ID)",
+    "name": "Point Blank",
+    "requires_zone": false,
+    "user_id_label": "ID PB",
+    "sort_order": 14
+  },
+  {
+    "slug": "eggy-party",
+    "provider_name": "Eggy Party",
+    "name": "Eggy Party",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 15
+  },
+  {
+    "slug": "metal-slug-awakening",
+    "provider_name": "Metal Slug Awakening",
+    "name": "Metal Slug Awakening",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 16
+  },
+  {
+    "slug": "blood-strike",
+    "provider_name": "Blood Strike",
+    "name": "Blood Strike",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 17
+  },
+  {
+    "slug": "zenless-zone-zero",
+    "provider_name": "Zenless Zone Zero (ZZZ)",
+    "name": "Zenless Zone Zero",
+    "requires_zone": true,
+    "user_id_label": "UID",
+    "zone_label": "Server",
+    "sort_order": 18
+  },
+  {
+    "slug": "honkai-impact-3",
+    "provider_name": "Honkai Impact 3",
+    "name": "Honkai Impact 3rd",
+    "requires_zone": true,
+    "user_id_label": "UID",
+    "zone_label": "Server",
+    "sort_order": 19
+  },
+  {
+    "slug": "tom-and-jerry",
+    "provider_name": "Tom and Jerry Chase",
+    "name": "Tom and Jerry Chase",
+    "requires_zone": false,
+    "user_id_label": "User ID",
+    "sort_order": 20
+  }
+]

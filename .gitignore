@@ -8,6 +8,20 @@ Cargo.lock
 .env.*
 !.env.example
 
+# API runtime data
+/apps/api/data/
+/apps/api/.env
+
+# Tooling state
+.commandcode/
+
+# Web app
+/web/node_modules/
+/web/.next/
+/web/.env.local
+/web/out/
+*.tsbuildinfo
+
 # IDEs
 .idea/
 .vscode/
