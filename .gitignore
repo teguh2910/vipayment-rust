@@ -1,5 +1,6 @@
 /target
-Cargo.lock
+# Cargo.lock is committed: the service images build from it for reproducible
+# dependency versions. (The SDK crate is published from git, not crates.io.)
 **/*.rs.bk
 *.pdb
 

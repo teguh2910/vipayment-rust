@@ -342,8 +342,10 @@ services are independent binaries and can be started in any order.
 Any other web app can use the same backend: the gateway is the only public
 entry point, and every `/api/v1/*` route is unchanged.
 
-Complete request/response schemas, error codes, status lifecycle, and TypeScript
-examples are in **[integration.md](integration.md)**. The short version:
+Complete request/response schemas, error codes, status lifecycle, TypeScript
+examples, and the full deploy guide for `https://vipsdk.ttmi.my.id` are in
+**[integration.md](integration.md)**. A ready-to-use nginx config lives in
+`deploy/nginx/vipsdk.ttmi.my.id.conf`. The short version:
 
 1. **Allow its origin.** Browser calls are gated by CORS, so add the new site to
    `WEB_ORIGIN` (comma-separated; a trailing slash is stripped):

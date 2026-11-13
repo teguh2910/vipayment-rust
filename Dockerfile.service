@@ -14,7 +14,10 @@ ARG SERVICE_BIN
 WORKDIR /build
 
 # Workspace manifest + SDK crate (a path dependency of every service).
-COPY Cargo.toml Cargo.lock README.md ./
+# Cargo.lock is committed for reproducible service builds; if it is missing
+# (older clones), cargo resolves versions again instead of failing the COPY.
+COPY Cargo.toml README.md ./
+COPY Cargo.lock* ./
 COPY src ./src
 COPY examples ./examples
 COPY apps ./apps

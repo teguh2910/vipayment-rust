@@ -16,7 +16,7 @@ Frontend Anda ──► gateway (:8080 publik)
 
 Yang perlu diingat:
 
-- **Satu base URL saja**: `https://api.example.com` (gateway). Prefix API: `/api/v1`.
+- **Satu base URL saja**: `https://vipsdk.ttmi.my.id` (gateway). Prefix API: `/api/v1`.
 - Port 8081–8083 **internal**. Jangan diakses langsung; `/internal/*` hanya untuk antar-service.
 - Harga **selalu** dari server. Client hanya mengirim `game_slug` + `product_code`.
 
@@ -30,26 +30,322 @@ Yang perlu diingat:
 
 ## 2. Base URL dan CORS
 
-Origin frontend Anda harus terdaftar di gateway (`, `-separated):
+Service ini dipublikasikan di:
+
+```
+https://vipsdk.ttmi.my.id
+```
+
+Base URL = origin itu, prefix API = `/api/v1`:
+
+| Kebutuhan | URL |
+| --- | --- |
+| API | `https://vipsdk.ttmi.my.id/api/v1` |
+| Ikon grup | `https://vipsdk.ttmi.my.id/logos/...` |
+| Bukti bayar | `https://vipsdk.ttmi.my.id/uploads/...` |
+| Health | `https://vipsdk.ttmi.my.id/api/v1/health` |
+
+Cek cepat dari mana pun:
+
+```bash
+curl -s https://vipsdk.ttmi.my.id/api/v1/health | jq
+```
+
+### 2.1 Daftarkan origin web Anda
+
+CORS dijaga **oleh gateway**, bukan oleh nginx. Origin frontend harus terdaftar di
+`apps/gateway/.env`, lalu gateway di-restart:
 
 ```dotenv
-# apps/gateway/.env
-WEB_ORIGIN=https://shop.example.com,https://admin.example.com
-# atau, izinkan semua origin (tanpa cookie/kredensial):
+# apps/gateway/.env — pisahkan dengan koma
+WEB_ORIGIN=https://topup.ttmi.my.id,https://app-anda.example.com
+# atau izinkan semua origin (tanpa cookie/kredensial):
 # WEB_ORIGIN=*
 ```
 
-Lalu restart gateway. Log startup menampilkan:
-
+```bash
+docker compose up -d gateway
+docker compose logs gateway | grep starting
+# starting vipayment-gateway ... origins=["https://topup.ttmi.my.id"] allow_any_origin=false
 ```
-starting vipayment-gateway ... origins=["https://shop.example.com"] allow_any_origin=false
+
+Yang diizinkan: method `GET`, `POST`, `OPTIONS`; header `Authorization`,
+`Content-Type`. Cookie/kredensial tidak dipakai, jadi jangan kirim
+`credentials: "include"`.
+
+> Origin tidak terdaftar → browser memblokir request (respons tanpa
+> `Access-Control-Allow-Origin`). Ini bukan bug API. Cek dengan:
+>
+> ```bash
+> curl -s -o /dev/null -D- -X OPTIONS https://vipsdk.ttmi.my.id/api/v1/games \
+>   -H 'Origin: https://app-anda.example.com' \
+>   -H 'Access-Control-Request-Method: GET' | grep -i access-control-allow-origin
+> ```
+>
+> Ada header → origin terdaftar. Kosong → tambahkan ke `WEB_ORIGIN`.
+
+### 2.2 Batas dari sisi nginx
+
+Selain validasi aplikasi (bagian 10), edge juga membatasi:
+
+| Path | Batas |
+| --- | --- |
+| `POST /api/v1/orders` | 12 request/menit per IP (burst 10) |
+| `/api/v1/*` lain | 240 request/menit per IP (burst 60) |
+| `/api/v1/health` | tanpa limit |
+| Body request | 4 MB di nginx, 3 MB di gateway |
+| Path di luar `/api/v1/`, `/logos/`, `/uploads/` | `404` |
+
+Melebihi batas → **HTTP 429** dengan body bukan JSON dari aplikasi. Tangani 429
+dengan backoff, jangan retry langsung.
+
+---
+
+## 2A. Deploy domain `vipsdk.ttmi.my.id`
+
+Ikuti bagian ini sekali saat menyiapkan server. Anggap repo ada di
+`/home/ubuntu/app/vipayment-rust` (sesuaikan bila beda).
+
+> **Penting:** `.env` tiap service tidak masuk git (`.gitignore`). Kalau sebelumnya
+> Anda hanya punya `apps/api/.env` dari arsitektur monolit, file itu **tidak**
+> otomatis terbawa — buatlah `.env` baru untuk tiap service di langkah 2.
+
+### Langkah 0 — prasyarat
+
+- DNS `vipsdk.ttmi.my.id` → A record ke IP server (sudah aktif:
+  `43.156.92.36`). Verifikasi: `getent hosts vipsdk.ttmi.my.id`.
+- Port 80 & 443 terbuka di firewall/security group (untuk ACME challenge).
+- Docker + Compose terpasang.
+
+### Langkah 1 — ambil kode
+
+```bash
+cd /home/ubuntu/app
+git clone https://github.com/teguh2910/vipayment-rust.git
+cd vipayment-rust
+git checkout refactor/microservices
 ```
 
-Yang diizinkan CORS: `GET`, `POST`, `OPTIONS`; header `Authorization`, `Content-Type`.
-Cookie/kredensial tidak dipakai, jadi jangan kirim `credentials: "include"`.
+### Langkah 2 — buat `.env` tiap service
 
-> Origin tidak terdaftar → browser memblokir request (tidak ada header
-> `Access-Control-Allow-Origin`). Ini bukan bug API.
+```bash
+cp apps/gateway/.env.example apps/gateway/.env
+cp apps/catalog-service/.env.example apps/catalog-service/.env
+cp apps/order-service/.env.example apps/order-service/.env
+cp apps/fulfillment-service/.env.example apps/fulfillment-service/.env
+```
+
+Isi nilai nyata. **`INTERNAL_TOKEN` harus identik** di catalog, order, dan
+fulfillment. **`ADMIN_TOKEN` harus identik** di gateway dan order.
+
+```bash
+# buat secret acak
+openssl rand -hex 32   # pakai untuk INTERNAL_TOKEN
+openssl rand -hex 32   # pakai untuk ADMIN_TOKEN
+```
+
+Contoh `apps/gateway/.env`:
+
+```dotenv
+BIND_ADDR=0.0.0.0:8080
+WEB_ORIGIN=https://topup.ttmi.my.id
+ADMIN_TOKEN=<ADMIN_TOKEN>
+CATALOG_SERVICE_URL=http://catalog:8081
+ORDER_SERVICE_URL=http://order:8082
+```
+
+Contoh `apps/catalog-service/.env`:
+
+```dotenv
+BIND_ADDR=0.0.0.0:8081
+DATABASE_URL=sqlite://data/catalog.db
+LOGO_DIR=data/logos
+GAMES_CONFIG_PATH=config/games.json
+LOGOS_CONFIG_PATH=config/logos.json
+INTERNAL_TOKEN=<INTERNAL_TOKEN>
+PROVIDER_VIPRESELLER_ENABLED=true
+PROVIDER_VIPRESELLER_API_ID=<api_id>
+PROVIDER_VIPRESELLER_API_KEY=<api_key>
+PROVIDER_VIPRESELLER_BASE_URL=https://vip-reseller.co.id/api
+PROVIDER_FORCE_IPV4=true
+MARKUP_PERCENT=5
+CATALOG_CATEGORIES=pulsa-reguler,pulsa-transfer,paket-internet,paket-telepon,paket-lainnya,token-pln
+```
+
+Contoh `apps/order-service/.env`:
+
+```dotenv
+BIND_ADDR=0.0.0.0:8082
+DATABASE_URL=sqlite://data/orders.db
+UPLOAD_DIR=data/uploads
+CATALOG_SERVICE_URL=http://catalog:8081
+INTERNAL_TOKEN=<INTERNAL_TOKEN>
+ADMIN_TOKEN=<ADMIN_TOKEN>
+PAYMENT_PROVIDER=manual
+PAYMENT_EXPIRY_MINUTES=1440
+MANUAL_BANK_ACCOUNTS='[{"bank":"BCA","account_no":"1234567890","account_name":"Nama Pemilik"}]'
+```
+
+Contoh `apps/fulfillment-service/.env`:
+
+```dotenv
+ORDER_SERVICE_URL=http://order:8082
+INTERNAL_TOKEN=<INTERNAL_TOKEN>
+POLL_INTERVAL_SECONDS=10
+PROVIDER_VIPRESELLER_ENABLED=true
+PROVIDER_VIPRESELLER_API_ID=<api_id>
+PROVIDER_VIPRESELLER_API_KEY=<api_key>
+PROVIDER_VIPRESELLER_BASE_URL=https://vip-reseller.co.id/api
+```
+
+`docker-compose.yml` mengambil `INTERNAL_TOKEN` dan `ADMIN_TOKEN` dari environment
+shell, jadi ekspor juga saat menjalankan Compose:
+
+```bash
+export INTERNAL_TOKEN='<INTERNAL_TOKEN>'
+export ADMIN_TOKEN='<ADMIN_TOKEN>'
+```
+
+> Semua path data (`data/catalog.db`, `data/uploads`, `data/logos`) relatif
+> terhadap `/app`, dan Compose memetakan volume `catalog-data` / `order-data`
+> ke sana. Jangan diganti ke path host.
+
+### Langkah 3 — migrasi data lama (bila ada)
+
+Lakukan **sebelum** menyalakan service baru, supaya order lama tidak hilang.
+
+```bash
+# 1. Backup dulu (wajib)
+cp data/app.db data/app.db.bak
+docker run --rm -v "$PWD":/w -w /w alpine cp data/app.db data/legacy.db
+
+# 2. Split ke catalog.db + orders.db (sumber dibuka read-only)
+cargo run -p vipayment-migrate   # butuh Rust di host; lihat alternatif di bawah
+```
+
+Jika Rust tidak terpasang di server, jalankan dalam container build:
+
+```bash
+docker build -f Dockerfile.service --build-arg SERVICE_BIN=vipayment-migrate -t vipayment-migrate:local .
+docker run --rm -v vipayment-rust_order-data:/data -v "$PWD/data:/legacy:ro" \
+  -e SOURCE_DATABASE_URL=sqlite:///legacy/app.db \
+  -e ORDERS_DATABASE_URL=sqlite:///data/orders.db \
+  -e CATALOG_DATABASE_URL=sqlite:///data/catalog.db \
+  vipayment-migrate:local
+```
+
+Tool ini keluar non-zero bila jumlah baris tidak sama — jangan lanjut bila begitu.
+Setelah migrasi, katalog akan disegarkan otomatis oleh sync (atau paksa lewat
+`POST /api/v1/admin/sync-products`).
+
+### Langkah 4 — jalankan service
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs -f gateway catalog order fulfillment
+```
+
+Hanya gateway yang membuka port host (`127.0.0.1:8089`). catalog/order/fulfillment
+tetap di jaringan internal Docker.
+
+### Langkah 5 — terbitkan sertifikat TLS
+
+```bash
+sudo apt-get install -y certbot
+sudo mkdir -p /var/www/html
+sudo certbot certonly --webroot -w /var/www/html -d vipsdk.ttmi.my.id
+sudo ls /etc/letsencrypt/live/vipsdk.ttmi.my.id/
+```
+
+`certbot` akan meminta email dan persetujuan ToS. Renewal otomatis sudah
+dipasang oleh paket Debian (`systemctl list-timers | grep certbot`).
+
+### Langkah 6 — pasang konfigurasi nginx
+
+Config siap pakai ada di repo: `deploy/nginx/vipsdk.ttmi.my.id.conf`.
+
+```bash
+sudo cp deploy/nginx/vipsdk.ttmi.my.id.conf /etc/nginx/sites-available/vipsdk.ttmi.my.id.conf
+sudo ln -sfn /etc/nginx/sites-available/vipsdk.ttmi.my.id.conf /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Apa yang dilakukan config itu:
+
+- `http://` → redirect 301 ke `https://`, dengan jalur ACME challenge.
+- Meneruskan **hanya** `/api/v1/`, `/logos/`, `/uploads/` ke `127.0.0.1:8089`;
+  sisanya `404` (tidak ada halaman/panel yang terbuka di domain ini).
+- Rate limit `POST /api/v1/orders` (12/menit) dan `/api/v1/*` lain (240/menit).
+- `/logos/` di-cache 7 hari; `/uploads/` `private, no-store` (bukti bayar privat).
+- **Tidak** menyentuh header CORS — itu milik gateway.
+
+### Langkah 7 — verifikasi
+
+```bash
+# 1. TLS + redirect
+curl -sI http://vipsdk.ttmi.my.id/api/v1/health | head -3        # 301
+curl -s https://vipsdk.ttmi.my.id/api/v1/health | jq             # ok: true
+
+# 2. katalog
+curl -s https://vipsdk.ttmi.my.id/api/v1/games | jq '.games | length'
+
+# 3. CORS untuk origin web Anda
+curl -s -o /dev/null -D- -X OPTIONS https://vipsdk.ttmi.my.id/api/v1/games \
+  -H 'Origin: https://topup.ttmi.my.id' \
+  -H 'Access-Control-Request-Method: GET' | grep -i access-control-allow-origin
+
+# 4. admin auth
+curl -s -o /dev/null -w '%{http_code}\n' https://vipsdk.ttmi.my.id/api/v1/admin/orders   # 401
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://vipsdk.ttmi.my.id/api/v1/admin/profile | jq
+
+# 5. path lain tertutup
+curl -s -o /dev/null -w '%{http_code}\n' https://vipsdk.ttmi.my.id/            # 404
+```
+
+Lalu uji satu checkout penuh dari web Anda (bagian 6), dan pastikan
+`pending_payment → paid → processing → success`.
+
+### Langkah 8 — pakai dari web lain
+
+Cukup dua hal di sisi frontend:
+
+```js
+const API_BASE = "https://vipsdk.ttmi.my.id";
+const res = await fetch(`${API_BASE}/api/v1/games`);
+```
+
+dan daftarkan origin web tersebut di `WEB_ORIGIN` (langkah 2.1). Jika web lain
+berada di server yang sama dengan nginx ini, Anda juga bisa mem-proxy dari
+domain web tersebut agar tidak perlu CORS sama sekali:
+
+```nginx
+# di server block domain web Anda
+location /api/ {
+    proxy_pass http://127.0.0.1:8089;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Dengan cara itu frontend memanggil `/api/v1/...` di domainnya sendiri.
+
+### Troubleshooting deploy
+
+| Gejala | Penyebab / solusi |
+| --- | --- |
+| `nginx -t` gagal: unknown directive `http2` | nginx < 1.25.1 — config di repo sudah memakai `listen 443 ssl http2;` |
+| Certbot gagal `unauthorized` | port 80 tidak terbuka, atau DNS belum mengarah ke server ini |
+| `502 Bad Gateway` | gateway mati: `docker compose ps`, `docker compose logs gateway` |
+| Health OK tapi `/games` kosong | sync belum jalan / IP server belum di-allowlist provider — cek `last_sync_error` |
+| Browser: CORS error | origin belum di `WEB_ORIGIN`; restart gateway |
+| `413 Request Entity Too Large` | upload > 4 MB (nginx) atau > 3 MB (gateway) |
+| `429` | kena rate limit edge atau batas 8 order/10 menit per kontak |
+| Logo 404 | `/logos/` tidak diteruskan proxy |
+| Data lama hilang | migrasi (langkah 3) dilewati atau `DATABASE_URL` berbeda |
 
 ---
 
@@ -504,7 +800,7 @@ Respons `sync-products`:
 ### TypeScript — client minimal
 
 ```ts
-const API_BASE = "https://api.example.com";
+const API_BASE = "https://vipsdk.ttmi.my.id";
 
 export class ApiError extends Error {
   constructor(
@@ -647,7 +943,7 @@ function useOrderPolling(invoice: string | null) {
 ### curl — uji cepat
 
 ```bash
-API=https://api.example.com
+API=https://vipsdk.ttmi.my.id
 
 # katalog
 curl -s "$API/api/v1/health" | jq
