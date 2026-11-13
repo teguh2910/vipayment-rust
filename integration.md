@@ -864,6 +864,80 @@ Respons `sync-products`:
 { "groups": 98, "products": 1243, "logos": 56, "errors": [] }
 ```
 
+### 8.1 Approve pembayaran
+
+Melunasi satu invoice. Ini endpoint yang memindahkan order dari
+`pending_payment` ke `paid`, sehingga fulfillment mulai mengirim ke provider.
+
+```http
+POST /api/v1/admin/payments/{invoice}/approve
+Authorization: Bearer <ADMIN_TOKEN>
+```
+
+| | |
+| --- | --- |
+| Method | `POST` |
+| Auth | `Authorization: Bearer <ADMIN_TOKEN>` |
+| Body | tidak ada |
+| Sukses | `200` + objek order lengkap (bentuk sama dengan `GET /orders/{invoice}`) |
+| Efek | `payments.status = paid`, `orders.status = paid`, `paid_at` terisi (sekali saja), `submission_lease_until` dikosongkan, satu event ditambahkan |
+
+```bash
+curl -s -X POST "https://vipsdk.ttmi.my.id/api/v1/admin/payments/$INV/approve" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.status, .payment.status'
+# "paid"
+# "paid"
+```
+
+Perilaku:
+
+- **Idempotent.** Approve dua kali tidak menggandakan apa pun. Kalau
+  `payments.status` sudah `paid`, respons langsung mengembalikan order tanpa
+  mengubah data.
+- Bekerja untuk pembayaran `pending`, `awaiting_review`, maupun `rejected`
+  (mis. admin menyetujui setelah bukti sempat ditolak).
+- Event timeline mencatat `from: <status sebelumnya> → to: paid` dengan
+  catatan `"pembayaran dikonfirmasi admin"`.
+- `reviewed_by` disimpan sebagai `"admin"` dan `reject_reason` dibersihkan.
+
+Error:
+
+| HTTP | Kapan |
+| --- | --- |
+| `401` | `ADMIN_TOKEN` tidak ada / salah / prefix bukan `Bearer ` |
+| `404` | invoice tidak dikenal |
+| `409` | order sudah `expired` atau `refunded`, jadi tidak boleh dilunasi |
+| `500` | data pembayaran hilang (seharusnya tidak terjadi) |
+
+> ⚠️ **Approve tidak memeriksa bukti bayar.** Endpoint ini melunasi invoice
+> betapa pun status bukti pembayarannya — bukti belum diunggah, sudah ditolak,
+> atau tidak pernah ada. Ini memang desain pembayaran manual (admin yang
+> memverifikasi), tetapi artinya **siapa pun yang memegang `ADMIN_TOKEN` dapat
+> melunasi order tanpa uang masuk**, dan karena order lalu dikirim ke provider,
+> saldo provider Anda ikut terpotong. Jaga token ini seperti kredensial bank.
+>
+> Untuk uji coba alur tanpa uang nyata, jangan pakai approve di produksi.
+> Gunakan `PAYMENT_PROVIDER=simulation` (lunas otomatis, tanpa provider) atau
+> arahkan `PROVIDER_VIPRESELLER_BASE_URL` ke mock.
+
+### 8.2 Tindakan pembayaran & order lainnya
+
+| Endpoint | Body | Efek | Syarat status |
+| --- | --- | --- | --- |
+| `POST /admin/payments/{invoice}/reject` | `{"reason":"..."}` | `payments.status = rejected`, simpan `reject_reason`; customer boleh unggah ulang bukti | pembayaran harus `awaiting_review` |
+| `POST /admin/orders/{invoice}/retry` | — | `orders.status = paid`, `submit_attempts = 0`, lease dikosongkan → antre ulang ke provider | order `needs_attention`, `failed`, atau `refund_pending` |
+| `POST /admin/orders/{invoice}/refunded` | — | `orders.status = refunded` (final) | order `refund_pending` |
+
+Catatan:
+
+- `reject` **tidak** membatalkan order; order tetap `pending_payment` dan
+  pelanggan masih bisa mengunggah bukti baru sampai `expires_at`.
+- `retry` hanya mengulang pengiriman ke provider, **tidak** mengubah data
+  pembayaran. Jangan pakai `retry` untuk "melunasi" — itu `approve`.
+- `refunded` adalah penanda administratif; uang tidak dikembalikan otomatis
+  oleh sistem. Pastikan refund benar-benar dilakukan di luar sistem.
+- `reason` pada `reject` wajib dan tidak boleh kosong (`400` bila kosong).
+
 ---
 
 ## 9. Contoh implementasi
