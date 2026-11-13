@@ -9,8 +9,8 @@ Cargo.lock
 !.env.example
 
 # API runtime data
-/apps/api/data/
-/apps/api/.env
+/apps/*/data/
+/apps/*/.env
 
 # Tooling state
 .commandcode/

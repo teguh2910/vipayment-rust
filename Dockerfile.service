@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+
+# Shared multi-stage build for every backend service. Pass SERVICE_BIN (the
+# cargo package name) and SERVICE_PORT at build time.
+#
+#   docker build -f Dockerfile.service \
+#     --build-arg SERVICE_BIN=vipayment-gateway \
+#     --build-arg SERVICE_PORT=8080 .
+
+# ---- build ----
+FROM rust:1-bookworm AS builder
+
+ARG SERVICE_BIN
+WORKDIR /build
+
+# Workspace manifest + SDK crate (a path dependency of every service).
+COPY Cargo.toml Cargo.lock README.md ./
+COPY src ./src
+COPY examples ./examples
+COPY apps ./apps
+
+RUN cargo build --release -p "${SERVICE_BIN}"
+
+# ---- runtime ----
+FROM debian:bookworm-slim
+
+ARG SERVICE_BIN
+ARG SERVICE_PORT=8080
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder "/build/target/release/${SERVICE_BIN}" /usr/local/bin/service
+COPY apps/catalog-service/games.json apps/catalog-service/logos.json ./config/
+
+RUN mkdir -p /app/data/uploads /app/data/logos && chown -R 10001:10001 /app
+
+USER 10001:10001
+
+ENV BIND_ADDR=0.0.0.0:${SERVICE_PORT} \
+    GAMES_CONFIG_PATH=config/games.json \
+    LOGOS_CONFIG_PATH=config/logos.json \
+    RUST_LOG=info,tower_http=info
+
+EXPOSE ${SERVICE_PORT}
+
+CMD ["service"]

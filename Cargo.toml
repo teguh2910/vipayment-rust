@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/api"]
+members = ["apps/shared", "apps/catalog-service", "apps/order-service", "apps/fulfillment-service", "apps/gateway", "apps/migrate"]
 default-members = ["."]
 resolver = "2"
 

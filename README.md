@@ -267,14 +267,29 @@ cargo test --all-features
 
 ---
 
-## Web Top-Up App (`apps/api` + `web`)
+## Web Top-Up App (`apps/*` + `web`)
 
-This repository also ships a self-hosted web top-up app built on top of the SDK:
+This repository also ships a self-hosted web top-up app built on top of the SDK.
+The backend is split into small services behind a single public gateway:
 
 ```
-web/ (Next.js)  ──►  apps/api/ (axum + SQLite)  ──►  VIP Reseller API
-                                                     (via the `vipayment` SDK)
+web/ (Next.js)  ──►  gateway :8080  ──┬──►  catalog-service :8081  (catalog.db, logos)
+   /api/v1/*                          ├──►  order-service   :8082  (orders.db, uploads)
+   /uploads/*                         └──►  fulfillment-service :8083  (stateless)
+   /logos/*                                     └──► VIP Reseller API (via the SDK)
 ```
+
+| Crate | Binary | Owns |
+| --- | --- | --- |
+| `apps/shared` | — | provider client, errors, status enums, helpers, internal auth |
+| `apps/gateway` | `vipayment-gateway` | public `/api/v1`, `/uploads`, `/logos`; CORS; admin auth; health aggregation |
+| `apps/catalog-service` | `vipayment-catalog` | catalog sync, pricing/margins, logo cache, `/games` |
+| `apps/order-service` | `vipayment-order` | orders, payments, invoices, uploads, expiry/simulation worker |
+| `apps/fulfillment-service` | `vipayment-fulfillment` | submits paid orders to the provider and polls status |
+| `apps/migrate` | `vipayment-migrate` | one-off migration from the old monolithic database |
+
+Service-to-service calls use `INTERNAL_TOKEN` (`x-internal-token`); browser
+traffic only ever reaches the gateway, so the public API surface is unchanged.
 
 ### What it does
 
@@ -298,20 +313,86 @@ The provider API key never reaches the browser, and order prices are always read
 ### Quick start
 
 ```bash
-# 1. Configure the API (the provided .env is gitignored)
-cp apps/api/.env.example apps/api/.env
-# then edit apps/api/.env: provider credentials, ADMIN_TOKEN, payment mode
+# 1. Configure every service (the provided .env files are gitignored).
+#    INTERNAL_TOKEN must be identical in catalog, order, and fulfillment.
+cp apps/gateway/.env.example apps/gateway/.env
+cp apps/catalog-service/.env.example apps/catalog-service/.env
+cp apps/order-service/.env.example apps/order-service/.env
+cp apps/fulfillment-service/.env.example apps/fulfillment-service/.env
+# then edit them: provider credentials, ADMIN_TOKEN, INTERNAL_TOKEN, payment mode
 
-# 2. Run the API from apps/api (paths are relative to that directory)
-cd apps/api
-cargo run
+# 2. Run each backend service (paths are relative to its crate directory)
+(cd apps/catalog-service && cargo run)      # :8081
+(cd apps/order-service && cargo run)        # :8082
+(cd apps/fulfillment-service && cargo run)  # no listener, background worker
+(cd apps/gateway && cargo run)              # :8080
 
-# 3. Run the web app
-cd ../web
+# 3. Run the web app (point it at the gateway)
+cd web
 npm install
-npm run dev
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8080 npm run dev
 # open http://localhost:3000  (admin: http://localhost:3000/admin)
 ```
+
+Running a single command per service is easiest with Compose (below); the
+services are independent binaries and can be started in any order.
+
+### Using the API from another frontend
+
+Any other web app can use the same backend: the gateway is the only public
+entry point, and every `/api/v1/*` route is unchanged.
+
+Complete request/response schemas, error codes, status lifecycle, and TypeScript
+examples are in **[integration.md](integration.md)**. The short version:
+
+1. **Allow its origin.** Browser calls are gated by CORS, so add the new site to
+   `WEB_ORIGIN` (comma-separated; a trailing slash is stripped):
+
+   ```dotenv
+   WEB_ORIGIN=https://shop.example.com,https://admin.example.com
+   # or, to let any website call the API (still no credentials/cookies):
+   # WEB_ORIGIN=*
+   ```
+
+   Restart the gateway afterwards. Startup logs print the active list and
+   `allow_any_origin`.
+
+2. **Point the frontend at the gateway.** Base URL is the gateway origin, and
+   the API prefix is `/api/v1`:
+
+   ```js
+   // Next.js example
+   const API_BASE = "https://api.example.com";
+   await fetch(`${API_BASE}/api/v1/games`);
+
+   // Create an order (prices always come from the server)
+   await fetch(`${API_BASE}/api/v1/orders`, {
+     method: "POST",
+     headers: { "content-type": "application/json" },
+     body: JSON.stringify({
+       game_slug: "mobile-legends",
+       product_code: "ML86",
+       user_id: "12345678",
+       zone: "1234",
+       contact: "081234567890",
+     }),
+   });
+   ```
+
+3. **Reach it from outside Docker.** Only the gateway publishes a host port
+   (`127.0.0.1:8089` in Compose). For a real domain, put nginx/Caddy in front of
+   it and forward `/api/v1/`, `/uploads/`, and `/logos/` to the gateway — the
+   storefront, invoice pages, proof uploads, and logos all live under those
+   three prefixes. Serve it over HTTPS, otherwise browsers treat the API as
+   mixed content on an HTTPS page.
+
+Admin endpoints need `Authorization: Bearer <ADMIN_TOKEN>`. Never ship that
+token in client-side code; call admin routes from your own server or an
+authenticated dashboard only.
+
+Note that a `*` allowlist does **not** let other sites act as an admin: the
+gateway requires the bearer token for `/api/v1/admin/*`, and CORS does not
+enable credentials. Still, prefer an explicit list in production.
 
 > **IP allowlist:** VIP Reseller only accepts requests from allowlisted IPs. Add
 > your server's public IP in the VIP Reseller dashboard first. Otherwise catalog
@@ -320,36 +401,45 @@ npm run dev
 
 ### Docker
 
-The repository ships a Compose setup with two services:
+The repository ships a Compose setup with five backend services plus the web app:
 
 | File | Purpose |
 | --- | --- |
-| `apps/api/Dockerfile` | Multi-stage Rust build; runs as a non-root user on `debian:bookworm-slim` |
+| `Dockerfile.service` | Shared multi-stage Rust build; `SERVICE_BIN`/`SERVICE_PORT` build args; runs as a non-root user on `debian:bookworm-slim` |
 | `web/Dockerfile` | Next.js standalone build; runs as a non-root user on `node:24-alpine` |
-| `docker-compose.yml` | `api` on `:8080`, `web` on `:3000`, named volume `api-data` |
+| `docker-compose.yml` | `gateway` on `:8089`, `catalog`/`order`/`fulfillment` internal only, `web` on `:3001`, volumes `catalog-data` + `order-data` |
 
 ```bash
-# 1. API environment (provider credentials, ADMIN_TOKEN, payment mode)
-cp apps/api/.env.example apps/api/.env
+# 1. Service environments (provider credentials, ADMIN_TOKEN, payment mode)
+cp apps/gateway/.env.example apps/gateway/.env
+cp apps/catalog-service/.env.example apps/catalog-service/.env
+cp apps/order-service/.env.example apps/order-service/.env
+cp apps/fulfillment-service/.env.example apps/fulfillment-service/.env
+# INTERNAL_TOKEN and ADMIN_TOKEN are read from the shell/Compose environment,
+# so export the same values you put in the .env files:
+export INTERNAL_TOKEN='change-me-internal-token-min-16-chars'
+export ADMIN_TOKEN='change-me'
 
 # 2. Build and start
 docker compose up --build -d
 
 # 3. Open
-# storefront  http://localhost:3000
-# admin       http://localhost:3000/admin
-# api health  http://localhost:8080/api/v1/health
+# storefront  http://localhost:3001
+# admin       http://localhost:3001/admin
+# api health  http://localhost:8089/api/v1/health
 ```
 
-The API container listens on `0.0.0.0:8080` (Compose overrides `BIND_ADDR`, which
-is `127.0.0.1` for local `cargo run`). SQLite data and uploaded payment proofs
-are stored in the `api-data` volume:
+Only the `gateway` publishes a host port (`127.0.0.1:8089`); `catalog`, `order`,
+and `fulfillment` are reachable only inside the Compose network. The gateway
+binds `0.0.0.0:8080` in the container (Compose overrides `BIND_ADDR`, which is
+`127.0.0.1` for local `cargo run`). Catalog data lives in the `catalog-data`
+volume, orders and payment proofs in `order-data`:
 
 ```bash
-docker compose logs -f api web   # follow logs
-docker compose ps                # service status
-docker compose down              # stop (keeps the volume)
-docker compose down -v           # stop and delete database + proofs
+docker compose logs -f gateway catalog order fulfillment web   # follow logs
+docker compose ps                                              # service status
+docker compose down                                            # stop (keeps volumes)
+docker compose down -v                                         # stop and delete data
 ```
 
 `NEXT_PUBLIC_API_URL` is inlined into the browser bundle at build time, so it
@@ -361,22 +451,24 @@ NEXT_PUBLIC_API_URL=https://api.example.com docker compose build web
 NEXT_PUBLIC_API_URL=https://api.example.com docker compose up -d
 ```
 
-For a public deployment also set `WEB_ORIGIN` in `apps/api/.env` to the public
-storefront URL (CORS allowlist), set a strong `ADMIN_TOKEN`, switch to
-`PAYMENT_PROVIDER=manual` with real QRIS/bank accounts, and make sure the
-provider allowlist includes the server's public IP.
+For a public deployment also set `WEB_ORIGIN` in `apps/gateway/.env` to the
+public storefront URL (CORS allowlist), set strong `ADMIN_TOKEN` and
+`INTERNAL_TOKEN` values (behind a reverse proxy, do not publish 8081-8083),
+switch `apps/order-service/.env` to `PAYMENT_PROVIDER=manual` with real
+QRIS/bank accounts, and make sure the provider allowlist includes the server's
+public IP.
 
 ### Logos missing after deploying
 
-Group logos are downloaded by the **API** during a catalog sync and cached in
-`LOGO_DIR`. Check these in order:
+Group logos are downloaded by the **catalog service** during a catalog sync and
+cached in `LOGO_DIR`. Check these in order:
 
-1. **Is the new API deployed?** `GET /api/v1/health` must include
+1. **Is the new catalog service deployed?** `GET /api/v1/health` must include
    `"logos_cached"`. If the field is missing, the running image predates the logo
    feature: `git pull && docker compose up -d --build`.
 2. **Did the sync cache anything?** `logos_cached` should be greater than zero
    (up to ~56 unique domains). If it is `0`, inspect
-   `docker compose logs api | grep -i logo`:
+   `docker compose logs catalog | grep -i logo`:
    - `logo download failed (check server egress)` — the server cannot reach
      `https://www.google.com/s2/favicons`; allow outbound HTTPS.
    - `cannot create logo directory` / `cannot write logo file` — `LOGO_DIR` is
@@ -394,32 +486,67 @@ Group logos are downloaded by the **API** during a catalog sync and cached in
 The admin **Katalog & saldo** tab also reports the number of logos stored by the
 last manual sync.
 
-### Configuration (`apps/api/.env`)
+### Configuration
+
+Each service reads its own `.env` (see the `.env.example` next to it).
+
+**Gateway** (`apps/gateway/.env`)
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `PROVIDER_VIPRESELLER_ENABLED` | `true` | `false` rejects new orders |
+| `BIND_ADDR` | `127.0.0.1:8080` | public listen address |
+| `WEB_ORIGIN` | `http://localhost:3000` | comma-separated CORS allowlist, or `*` for any origin |
+| `ADMIN_TOKEN` | required | `Authorization: Bearer <token>` for `/api/v1/admin/*` |
+| `CATALOG_SERVICE_URL` | `http://127.0.0.1:8081` | catalog service base URL |
+| `ORDER_SERVICE_URL` | `http://127.0.0.1:8082` | order service base URL |
+
+**Catalog service** (`apps/catalog-service/.env`)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `BIND_ADDR` | `127.0.0.1:8081` | internal listen address |
+| `DATABASE_URL` | `sqlite://data/catalog.db` | catalog SQLite file |
+| `INTERNAL_TOKEN` | required | service-to-service shared secret |
+| `PROVIDER_VIPRESELLER_ENABLED` | `true` | `false` stops catalog refreshes |
 | `PROVIDER_VIPRESELLER_API_ID` / `_API_KEY` | required | falls back to `VIPAYMENT_API_ID` / `VIPAYMENT_API_KEY` |
 | `PROVIDER_VIPRESELLER_SIGN` | optional | checked against `md5(API_ID + API_KEY)`; the SDK recomputes it |
 | `PROVIDER_VIPRESELLER_BASE_URL` | `https://vip-reseller.co.id/api` | point at a mock for testing |
 | `PROVIDER_TIMEOUT_SECONDS` | `20` | provider request timeout |
 | `PROVIDER_FORCE_IPV4` | `true` | bind outbound requests to IPv4 (use when only the IPv4 is allowlisted) |
-| `DATABASE_URL` | `sqlite://data/app.db` | SQLite file (created automatically) |
-| `BIND_ADDR` | `127.0.0.1:8080` | API listen address |
-| `WEB_ORIGIN` | `http://localhost:3000` | CORS allowlist |
-| `ADMIN_TOKEN` | required | `Authorization: Bearer <token>` for `/api/v1/admin/*` |
-| `PAYMENT_PROVIDER` | `manual` | `manual` or `simulation` |
-| `PAYMENT_EXPIRY_MINUTES` | `1440` | invoice payment window |
-| `MARKUP_PERCENT` | `5` | `sell = ceil(base * (100 + p) / 100)` |
-| `SIMULATION_AUTO_PAY_SECONDS` | `5` | simulation mode only |
-| `MANUAL_QRIS_IMAGE_URL` | empty | optional QRIS image URL |
-| `MANUAL_BANK_ACCOUNTS` | empty | JSON array, single-quoted in `.env` |
-| `GAMES_CONFIG_PATH` | `config/games.json` | optional game metadata overrides |
 | `MARKUP_PERCENT` | `5` | default margin for every category |
 | `MARKUP_BY_CATEGORY` | empty | JSON map of per-category percentages |
 | `MARKUP_FIXED_BY_CATEGORY` | empty | JSON map of per-category rupiah margins |
+| `CATALOG_CATEGORIES` | all | comma-separated category allowlist for the storefront |
+| `GAMES_CONFIG_PATH` | `config/games.json` | optional game metadata overrides |
 | `LOGOS_CONFIG_PATH` | `config/logos.json` | group/brand → official domain mapping |
 | `LOGO_DIR` | `data/logos` | cached logo files served at `/logos` |
+
+**Order service** (`apps/order-service/.env`)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `BIND_ADDR` | `127.0.0.1:8082` | internal listen address |
+| `DATABASE_URL` | `sqlite://data/orders.db` | orders SQLite file |
+| `UPLOAD_DIR` | `data/uploads` | payment proofs served at `/uploads` |
+| `CATALOG_SERVICE_URL` | `http://127.0.0.1:8081` | used to resolve prices at checkout |
+| `INTERNAL_TOKEN` | required | must match the catalog and fulfillment services |
+| `ADMIN_TOKEN` | required | re-validated here; must match the gateway |
+| `PAYMENT_PROVIDER` | `manual` | `manual` or `simulation` |
+| `PAYMENT_EXPIRY_MINUTES` | `1440` | invoice payment window |
+| `SIMULATION_AUTO_PAY_SECONDS` | `5` | simulation mode only |
+| `MAX_ORDER_AMOUNT` | `10000000` | upper bound for a single order |
+| `MANUAL_QRIS_IMAGE_URL` | empty | optional QRIS image URL |
+| `MANUAL_BANK_ACCOUNTS` | empty | JSON array, single-quoted in `.env` |
+
+**Fulfillment service** (`apps/fulfillment-service/.env`)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ORDER_SERVICE_URL` | `http://127.0.0.1:8082` | claim/report endpoints |
+| `INTERNAL_TOKEN` | required | must match the order service |
+| `POLL_INTERVAL_SECONDS` | `10` | how often a paid order is claimed |
+| `FULFILLMENT_ENABLED` | `true` | `false` exits without submitting |
+| `PROVIDER_VIPRESELLER_*` | — | same provider variables as the catalog service |
 
 ### Pricing and margins
 
@@ -451,6 +578,20 @@ Margins are applied during a catalog sync. After editing `.env`, restart the API
 and trigger a sync (admin **Katalog & saldo** → **Sync sekarang**) or wait up to
 30 minutes. The admin tab shows the active default and per-category margins.
 
+### Product scope
+
+`CATALOG_CATEGORIES` limits which categories can be sold. It is a
+comma-separated allowlist of category slugs; when unset, every category is
+available. Groups whose category is not listed are hidden from `/games`, their
+product pages return 404, ordering them is rejected, and a catalog sync skips
+them. Game and app/voucher groups have no prepaid category, so setting an
+allowlist hides them automatically.
+
+```dotenv
+# Only pulsa, data packages, and PLN tokens
+CATALOG_CATEGORIES=pulsa-reguler,pulsa-transfer,pulsa-internasional,paket-internet,paket-telepon,paket-lainnya,token-pln
+```
+
 `config/games.json` is **optional metadata overrides** for game groups (display
 name, slug, icon, zone requirement, input labels, sort order). All groups are
 discovered from the provider; a game without an override gets a generated slug,
@@ -467,24 +608,55 @@ the cached file, then run `POST /api/v1/admin/sync-products`.
 
 ### API surface
 
+All of this goes through the gateway; the split is invisible to clients.
+
 Public (`/api/v1`): `GET /health`, `GET /games`, `GET /games/{slug}/products`,
-`POST /orders`, `GET /orders/{invoice}`, `POST /orders/{invoice}/payment-proof`.
+`GET /orders/lookup`, `POST /orders`, `GET /orders/{invoice}`,
+`POST /orders/{invoice}/payment-proof`.
 
 Admin (Bearer `ADMIN_TOKEN`): `GET /admin/payments`, `POST /admin/payments/{invoice}/approve`,
 `POST /admin/payments/{invoice}/reject`, `GET /admin/orders`, `POST /admin/orders/{invoice}/retry`,
 `POST /admin/orders/{invoice}/refunded`, `POST /admin/sync-products`, `GET /admin/profile`.
 
+Internal (service only, `x-internal-token`): `GET /internal/catalog/resolve/{slug}/{code}`
+on the catalog service; `POST /internal/orders/claim`, `GET /internal/orders/pollable`, and
+`POST /internal/orders/{invoice}/{submitted|rejected|failed|status}` on the order service.
+
 Order lifecycle: `pending_payment → paid → submitting → processing → success`
 (with `failed` / `refund_pending` / `refunded` / `expired` / `needs_attention` branches).
+The lease (`submission_lease_until`) still lives in `orders.db`, so the
+fulfillment service submits each paid order exactly once even if several
+instances run.
+
+### Migrating from the monolithic database
+
+The old single `data/app.db` is not read by the services. Copy it aside and run
+the migration tool, which splits it into `catalog.db` and `orders.db`:
+
+```bash
+SOURCE_DATABASE_URL=sqlite://data/app.db \
+CATALOG_DATABASE_URL=sqlite://data/catalog.db \
+ORDERS_DATABASE_URL=sqlite://data/orders.db \
+cargo run -p vipayment-migrate
+```
+
+It opens the source read-only, backfills the denormalized `game_*` columns on
+orders, and exits non-zero if any row count differs from the source. The source
+file is left untouched, so keep it as a backup.
 
 ### Testing
 
 ```bash
-cargo test --all-features          # SDK
-cargo test -p vipayment-api        # API unit + wiremock order-flow tests
-cargo clippy -p vipayment-api --all-targets -- -D warnings
+cargo test --workspace             # SDK + all services
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
 cd web && npm run build            # typecheck + production build
 ```
+
+The wiring that matters most is covered end to end: `apps/order-service/tests/order_flow.rs`
+drives checkout against a mocked catalog, and
+`apps/fulfillment-service/tests/fulfillment.rs` proves a paid order is submitted
+exactly once and that provider rejections become refund cases.
 
 ---
 

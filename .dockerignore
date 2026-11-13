@@ -14,7 +14,8 @@ node_modules
 **/*.tsbuildinfo
 
 # Runtime data (SQLite database, uploaded payment proofs)
-apps/api/data
+apps/catalog-service/data
+apps/order-service/data
 
 # Secrets (compose injects the API env file at runtime, it must not be baked in)
 **/.env

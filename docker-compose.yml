@@ -1,22 +1,81 @@
+x-service-build: &service-build
+  context: .
+  dockerfile: Dockerfile.service
+
 services:
-  api:
+  catalog:
     build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+      <<: *service-build
+      args:
+        SERVICE_BIN: vipayment-catalog
+        SERVICE_PORT: 8081
     env_file:
-      - ./apps/api/.env
+      - ./apps/catalog-service/.env
     environment:
-      # Inside the container the API must listen on all interfaces.
-      BIND_ADDR: 0.0.0.0:8080
-      DATABASE_URL: sqlite://data/app.db
-      UPLOAD_DIR: data/uploads
+      BIND_ADDR: 0.0.0.0:8081
+      DATABASE_URL: sqlite://data/catalog.db
       LOGO_DIR: data/logos
       GAMES_CONFIG_PATH: config/games.json
       LOGOS_CONFIG_PATH: config/logos.json
-    ports:
-      - "8080:8080"
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
     volumes:
-      - api-data:/app/data
+      - catalog-data:/app/data
+    restart: unless-stopped
+
+  order:
+    build:
+      <<: *service-build
+      args:
+        SERVICE_BIN: vipayment-order
+        SERVICE_PORT: 8082
+    env_file:
+      - ./apps/order-service/.env
+    environment:
+      BIND_ADDR: 0.0.0.0:8082
+      DATABASE_URL: sqlite://data/orders.db
+      UPLOAD_DIR: data/uploads
+      CATALOG_SERVICE_URL: http://catalog:8081
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+    volumes:
+      - order-data:/app/data
+    depends_on:
+      - catalog
+    restart: unless-stopped
+
+  fulfillment:
+    build:
+      <<: *service-build
+      args:
+        SERVICE_BIN: vipayment-fulfillment
+        SERVICE_PORT: 8083
+    env_file:
+      - ./apps/fulfillment-service/.env
+    environment:
+      ORDER_SERVICE_URL: http://order:8082
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+    depends_on:
+      - order
+    restart: unless-stopped
+
+  gateway:
+    build:
+      <<: *service-build
+      args:
+        SERVICE_BIN: vipayment-gateway
+        SERVICE_PORT: 8080
+    env_file:
+      - ./apps/gateway/.env
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      CATALOG_SERVICE_URL: http://catalog:8081
+      ORDER_SERVICE_URL: http://order:8082
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+    ports:
+      - "127.0.0.1:8089:8080"
+    depends_on:
+      - catalog
+      - order
     restart: unless-stopped
 
   web:
@@ -25,12 +84,13 @@ services:
       dockerfile: web/Dockerfile
       args:
         # Must be reachable from the browser, not from inside the container.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://topup.ttmi.my.id}
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
-      - api
+      - gateway
     restart: unless-stopped
 
 volumes:
-  api-data:
+  catalog-data:
+  order-data:

@@ -632,7 +632,7 @@ export default function AdminPage() {
             <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
               Ubah <code>MARKUP_BY_CATEGORY</code> (persen) atau{" "}
               <code>MARKUP_FIXED_BY_CATEGORY</code> (nominal rupiah, menang atas
-              persen) di <code>apps/api/.env</code>, restart API, lalu tekan Sync
+              persen) di <code>apps/catalog-service/.env</code>, restart API, lalu tekan Sync
               sekarang. Kategori: game, app, pulsa-reguler, pulsa-transfer,
               pulsa-internasional, paket-internet, paket-telepon, paket-lainnya,
               saldo-emoney, token-pln, streaming-tv, voucher-game.
