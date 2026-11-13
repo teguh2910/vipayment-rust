@@ -6,15 +6,12 @@ import useSWR from "swr";
 import GameCard from "@/components/GameCard";
 import { fetcher, type Game } from "@/lib/api";
 
-type Filter = "all" | "game" | "app" | "pulsa" | "pln" | "tv";
+type Filter = "all" | "pulsa" | "pln";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "Semua" },
-  { key: "game", label: "Game" },
-  { key: "app", label: "Aplikasi & Voucher" },
   { key: "pulsa", label: "Pulsa & Data" },
-  { key: "pln", label: "PLN & E-Wallet" },
-  { key: "tv", label: "TV & Voucher" },
+  { key: "pln", label: "Token PLN" },
 ];
 
 const PULSA_CATEGORIES = [
@@ -28,20 +25,11 @@ const PULSA_CATEGORIES = [
 
 function matchesFilter(game: Game, filter: Filter): boolean {
   if (filter === "all") return true;
-  if (filter === "game") return game.kind === "game";
-  if (filter === "app") return game.kind === "app";
-
   if (game.kind !== "prepaid") return false;
-  const category = game.category ?? "";
 
+  const category = game.category ?? "";
   if (filter === "pulsa") return PULSA_CATEGORIES.includes(category);
-  if (filter === "pln") {
-    return category === "token-pln" || category === "saldo-emoney";
-  }
-  if (filter === "tv") {
-    return category === "streaming-tv" || category === "voucher-game";
-  }
-  return true;
+  return category === "token-pln";
 }
 
 export default function HomePage() {
@@ -79,7 +67,7 @@ export default function HomePage() {
           </span>
 
           <h1 className="mt-5 text-3xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-            Top up game, pulsa, dan voucher
+            Top up pulsa, paket data, dan token PLN
             <br />
             <span className="bg-gradient-to-r from-indigo-300 to-cyan-300 bg-clip-text text-transparent">
               langsung diproses otomatis.
@@ -87,9 +75,9 @@ export default function HomePage() {
           </h1>
 
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base">
-            Pilih produk, isi ID akun / nomor tujuan, bayar, lalu unggah bukti.
-            Setelah pembayaran diverifikasi, pesanan otomatis dikirim ke
-            provider dan statusnya bisa kamu pantau lewat invoice.
+            Pilih produk, isi nomor HP atau ID pelanggan / nomor meter, bayar,
+            lalu unggah bukti. Setelah pembayaran diverifikasi, pesanan otomatis
+            dikirim ke provider dan statusnya bisa kamu pantau lewat invoice.
           </p>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -108,7 +96,8 @@ export default function HomePage() {
           <div>
             <h2 className="text-lg font-semibold text-white">Pilih produk</h2>
             <p className="text-sm text-slate-400">
-              Semua kategori dari provider, harga sudah termasuk biaya layanan.
+              Pulsa, paket data, dan token PLN dengan harga sudah termasuk biaya
+              layanan.
             </p>
           </div>
           <span className="text-xs text-slate-500">
@@ -121,7 +110,7 @@ export default function HomePage() {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Cari game, pulsa, voucher, atau brand..."
+            placeholder="Cari pulsa, paket data, atau token PLN..."
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/60 focus:outline-none"
           />
           {query.trim() && (
@@ -213,7 +202,7 @@ export default function HomePage() {
         {[
           {
             title: "1. Isi data tujuan",
-            body: "Masukkan ID akun game (plus zone/server bila perlu), nomor HP, atau nomor meter sesuai produk.",
+            body: "Masukkan nomor HP untuk pulsa/paket data, atau ID pelanggan / nomor meter untuk token PLN.",
           },
           {
             title: "2. Bayar & unggah bukti",
