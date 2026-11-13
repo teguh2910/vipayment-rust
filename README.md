@@ -655,6 +655,9 @@ cargo fmt --all -- --check
 cd web && npm run build            # typecheck + production build
 ```
 
+Auth can be checked against a running deployment with `./scripts/test-auth.sh <base-url> <admin-token>`
+(public endpoints 200, admin without/with wrong token 401, valid token 200).
+
 The wiring that matters most is covered end to end: `apps/order-service/tests/order_flow.rs`
 drives checkout against a mocked catalog, and
 `apps/fulfillment-service/tests/fulfillment.rs` proves a paid order is submitted

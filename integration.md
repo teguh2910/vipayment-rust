@@ -370,6 +370,77 @@ Tanpa token → `401`:
 { "error": "unauthorized", "message": "unauthorized" }
 ```
 
+### 3.1 Cara menguji auth
+
+Ada dua jenis auth yang berbeda dan sering tertukar:
+
+| Jenis | Header | Untuk | Tidak berlaku di |
+| --- | --- | --- | --- |
+| Admin | `Authorization: Bearer <ADMIN_TOKEN>` | `/api/v1/admin/*` | endpoint publik |
+| Internal | `x-internal-token: <INTERNAL_TOKEN>` | `/internal/*` (antar-service) | gateway publik |
+
+`/internal/*` **tidak dirutekan** oleh gateway, jadi dari luar hasilnya `404`.
+Header internal hanya relevan bila Anda menembak service langsung (mis. saat
+debug di server).
+
+Uji manual (ganti `$ADMIN_TOKEN` dan `$API`):
+
+```bash
+API=https://vipsdk.ttmi.my.id
+
+# 1. publik: harus 200 tanpa header apa pun
+curl -s -o /dev/null -w '%{http_code}\n' "$API/api/v1/health"
+
+# 2. admin tanpa token: harus 401
+curl -s -o /dev/null -w '%{http_code}\n' "$API/api/v1/admin/orders"
+
+# 3. token salah: harus 401
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H 'Authorization: Bearer salah' "$API/api/v1/admin/orders"
+
+# 4. token benar: harus 200
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer $ADMIN_TOKEN" "$API/api/v1/admin/orders"
+
+# 5. token tanpa prefix "Bearer " dan huruf kecil: harus 401
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: $ADMIN_TOKEN" "$API/api/v1/admin/orders"
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: bearer $ADMIN_TOKEN" "$API/api/v1/admin/orders"
+
+# 6. internal lewat gateway: harus 404 (tidak diekspos)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$API/internal/orders/claim"
+```
+
+Semua sekaligus, dengan exit code (cocok untuk CI / cek setelah deploy):
+
+```bash
+./scripts/test-auth.sh https://vipsdk.ttmi.my.id "$ADMIN_TOKEN"
+```
+
+Verifikasi `/internal/*` di service langsung (hanya dari server):
+
+```bash
+# tanpa header → 401, header salah → 401, header benar → 204 (tidak ada order)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8082/internal/orders/claim
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H "x-internal-token: $INTERNAL_TOKEN" http://127.0.0.1:8082/internal/orders/claim
+```
+
+Catatan penting:
+
+- Prefix harus persis `Bearer ` (huruf besar, satu spasi). `bearer `, token
+  telanjang, atau spasi ganda ditolak `401`.
+- Detail kecil memang disengaja: **tidak** ada informasi apakah token salah atau
+  tidak ada; keduanya `401` dengan body identik.
+- `ADMIN_TOKEN` divalidasi **dua kali** — di gateway dan di order service. Jadi
+  token gateway dan order harus sama, kalau tidak admin akan `401` walau token
+  benar di gateway.
+- `INTERNAL_TOKEN` harus sama di catalog, order, dan fulfillment. Kalau berbeda,
+  checkout gagal dengan `502 provider_error` karena order service tidak bisa
+  memanggil catalog.
+- Jangan pernah menaruh kedua token ini di bundle frontend.
+
 ---
 
 ## 4. Konvensi umum
