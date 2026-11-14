@@ -25,10 +25,10 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Run clippy linter
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --workspace --all-features
 
       - name: Verify examples
         run: cargo check --examples

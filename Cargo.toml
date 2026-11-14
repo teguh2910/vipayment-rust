@@ -1,3 +1,8 @@
+[workspace]
+members = ["apps/shared", "apps/catalog-service", "apps/order-service", "apps/fulfillment-service", "apps/gateway", "apps/migrate"]
+default-members = ["."]
+resolver = "2"
+
 [package]
 name = "vipayment"
 version = "0.1.0"

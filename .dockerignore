@@ -1,0 +1,25 @@
+# Version control
+.git
+.gitignore
+
+# Rust build output
+target
+**/target
+
+# Node / Vite build output
+node_modules
+**/node_modules
+dist
+**/dist
+**/*.tsbuildinfo
+
+# Runtime data (SQLite database, uploaded payment proofs)
+apps/catalog-service/data
+apps/order-service/data
+
+# Secrets (compose injects the API env file at runtime, it must not be baked in)
+**/.env
+**/.env.local
+
+# Tooling state
+.commandcode

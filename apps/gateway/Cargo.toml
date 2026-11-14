@@ -1,0 +1,22 @@
+[package]
+name = "vipayment-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "Public API gateway: routes /api/v1 to the catalog and order services"
+license = "MIT"
+publish = false
+
+[dependencies]
+vipayment-shared = { path = "../shared" }
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+
+[dev-dependencies]
+wiremock = "0.6"
+tower = { version = "0.5", features = ["util"] }
