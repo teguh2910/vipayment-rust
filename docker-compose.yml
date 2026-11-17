@@ -1,97 +1,19 @@
-x-service-build: &service-build
-  context: .
-  dockerfile: Dockerfile.service
-
 services:
-  catalog:
-    build:
-      <<: *service-build
-      args:
-        SERVICE_BIN: vipayment-catalog
-        SERVICE_PORT: 8081
-    env_file:
-      - ./apps/catalog-service/.env
-    environment:
-      BIND_ADDR: 0.0.0.0:8081
-      DATABASE_URL: sqlite://data/catalog.db
-      LOGO_DIR: data/logos
-      GAMES_CONFIG_PATH: config/games.json
-      LOGOS_CONFIG_PATH: config/logos.json
-      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
-    volumes:
-      - catalog-data:/app/data
-    restart: unless-stopped
-
-  order:
-    build:
-      <<: *service-build
-      args:
-        SERVICE_BIN: vipayment-order
-        SERVICE_PORT: 8082
-    env_file:
-      - ./apps/order-service/.env
-    environment:
-      BIND_ADDR: 0.0.0.0:8082
-      DATABASE_URL: sqlite://data/orders.db
-      UPLOAD_DIR: data/uploads
-      CATALOG_SERVICE_URL: http://catalog:8081
-      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
-      ADMIN_TOKEN: ${ADMIN_TOKEN}
-    volumes:
-      - order-data:/app/data
-    depends_on:
-      - catalog
-    restart: unless-stopped
-
-  fulfillment:
-    build:
-      <<: *service-build
-      args:
-        SERVICE_BIN: vipayment-fulfillment
-        SERVICE_PORT: 8083
-    env_file:
-      - ./apps/fulfillment-service/.env
-    environment:
-      ORDER_SERVICE_URL: http://order:8082
-      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
-    depends_on:
-      - order
-    restart: unless-stopped
-
-  gateway:
-    build:
-      <<: *service-build
-      args:
-        SERVICE_BIN: vipayment-gateway
-        SERVICE_PORT: 8080
-    env_file:
-      - ./apps/gateway/.env
-    environment:
-      BIND_ADDR: 0.0.0.0:8080
-      CATALOG_SERVICE_URL: http://catalog:8081
-      ORDER_SERVICE_URL: http://order:8082
-      ADMIN_TOKEN: ${ADMIN_TOKEN}
-    ports:
-      - "127.0.0.1:8089:8080"
-    depends_on:
-      - catalog
-      - order
-    restart: unless-stopped
-
-  web:
+  server:
     build:
       context: .
-      dockerfile: web/Dockerfile
+      dockerfile: Dockerfile.service
       args:
-        # Must be reachable from the browser, not from inside the container.
-        VITE_API_URL: ${VITE_API_URL:-https://topup.ttmi.my.id}
+        SERVICE_BIN: vipayment-server
+        SERVICE_PORT: 8080
+    env_file:
+      - ./apps/server/.env
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      VIPAYMENT_API_ID: ${VIPAYMENT_API_ID}
+      VIPAYMENT_API_KEY: ${VIPAYMENT_API_KEY}
+      VIPAYMENT_BASE_URL: ${VIPAYMENT_BASE_URL:-https://vip-reseller.co.id/api}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
     ports:
-      # Loopback only: the host nginx proxies the storefront on 3001.
-      - "127.0.0.1:3001:80"
-    depends_on:
-      - gateway
+      - "127.0.0.1:8089:8080"
     restart: unless-stopped
-
-volumes:
-  catalog-data:
-  order-data:
